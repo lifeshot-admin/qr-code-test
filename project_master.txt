@@ -1,0 +1,13 @@
+[프로젝트 명: 치이즈(CHIIZ) 웹 서비스]
+
+1. 목표: Bubble.io 백엔드를 유지한 채, 관리자용 카메라 웹앱을 Next.js/TypeScript로 전환.
+2. 핵심 로직 (원본 HTML 참조):
+   - QR 스캔 모드: jsQR을 사용하여 예약 ID 추출 후 버블 DB 조회.
+   - 인증사진 모드: 고객 촬영 후 버블 'auth_photo' 테이블에 업로드.
+   - 포즈 가이드: 'Reserved_pose'에 저장된 포즈 목록을 불러와서 화면에 출력.
+3. 데이터 구조 (database_schema.txt 참조):
+   - 메인 테이블: pose_reservation (상태 및 예약 관리)
+   - 이미지 테이블: auth_photo (인증샷), Spot_pose (가이드샷)
+4. 기술적 요구사항:
+   - 모든 통신은 Bubble Data API 사용 (.env.local에 API Key 보관).
+   - UI는 Tailwind CSS 사용, 카메라 제어는 React 라이프사이클에 맞게 구현.

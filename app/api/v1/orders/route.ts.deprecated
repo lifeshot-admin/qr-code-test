@@ -1,0 +1,18 @@
+/**
+ * ⚠️ DEPRECATED - 더 이상 사용하지 않음
+ * 
+ * 이 파일은 자바 백엔드 API를 호출하던 이전 버전입니다.
+ * 
+ * 새로운 아키텍처:
+ * - 자바 백엔드: folderId만 제공 (출입증)
+ * - 버블 DB: 모든 포즈 데이터 저장 (독립 왕국)
+ * 
+ * 새로운 API:
+ * - POST /api/bubble/pose-reservation (STEP 1: Master)
+ * - POST /api/bubble/reserved-pose (STEP 2: Detail)
+ * 
+ * 이 파일은 참고용으로 보관합니다.
+ */
+
+// This file has been deprecated and moved to .deprecated
+// Please use the new Bubble-based API routes instead

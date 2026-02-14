@@ -1,0 +1,7 @@
+테이블명 (Data Type),주요 필드 (Custom Fields),설명
+tour,"tour_Id (number), max_total (number), min_total (number)",투어의 기본 정보 및 인원 제한 관리
+pose_reservation,"tourId (number), userID (number), qrCodeUrl (text), status (text), folder_Id (number)","핵심 테이블. 예약 정보와 스캔용 QR, 진행 상태 관리"
+Spot_pose,"spot_Id (number), tour_id (number), image (image), persona (Persona)",특정 촬영 포인트(Spot)별 권장 포즈 가이드 이미지
+Reserved_pose,"pose_reservation_Id (pose_reservation), spot_pose_Id (Spot_pose)",특정 예약건에 바인딩된 선택 포즈 목록 (N:M 매핑)
+auth_photo,"auth_photo (image), pose_Reservation_Id (pose_reservation)",촬영 현장에서 찍은 고객 확인용 인증 사진
+web)user_Auth,"user_Id (number), email (text), access_token (text), refresh_Token (text), lan (text), social_type (text)",웹 서비스 사용자 인증 및 다국어 설정 정보

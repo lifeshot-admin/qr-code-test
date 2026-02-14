@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* 포토그래퍼 앱용 고정 레이아웃 */
+.photographer-app html,
+.photographer-app body {
+  overflow: hidden;
+  position: fixed;
+  background: #000;
+}
+
+/* 스크롤바 숨기기 (카테고리 메뉴용) */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+video::-webkit-media-controls {
+  display: none !important;
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    top: 0;
+    opacity: 1;
+  }
+  50% {
+    top: calc(100% - 2px);
+    opacity: 0.5;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-scan {
+  animation: scan 2s ease-in-out infinite;
+}
+
+.animate-pop {
+  animation: pop 0.3s ease;
+}

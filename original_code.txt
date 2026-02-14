@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>포토그래퍼 촬영 시스템</title>
+    
+    <style>
+        * {
+            margin: 0; padding: 0; box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%; height: 100%; overflow: hidden;
+            position: fixed; background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .screen {
+            width: 100vw; height: 100vh; position: fixed;
+            top: 0; left: 0; display: none; flex-direction: column; background: #000;
+        }
+
+        .screen.active { display: flex; }
+
+        /* 카메라 영역 */
+        .camera-view {
+            flex: 1; position: relative; overflow: hidden; background: #000;
+        }
+
+        video {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+
+        video::-webkit-media-controls { display: none !important; }
+        canvas { display: none; }
+
+        /* 오버레이 */
+        .overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none; z-index: 5;
+        }
+
+        .status-bar {
+            position: absolute; top: 20px; left: 20px; right: 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 16px; background: rgba(0,0,0,0.85);
+            border-radius: 12px; backdrop-filter: blur(10px);
+        }
+
+        .status-text {
+            color: #00D9FF; font-size: 14px; font-weight: 600; flex: 1;
+        }
+
+        .session-badge {
+            color: white; font-size: 12px;
+            background: rgba(255,255,255,0.15);
+            padding: 4px 10px; border-radius: 8px;
+        }
+
+        /* QR 가이드 */
+        .qr-guide {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 280px; height: 280px; border: 3px solid #00D9FF;
+            border-radius: 24px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.6);
+        }
+
+        .scan-line {
+            position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, #00D9FF, transparent);
+            box-shadow: 0 0 10px #00D9FF; animation: scan 2s ease-in-out infinite;
+        }
+
+        @keyframes scan {
+            0%, 100% { top: 0; opacity: 1; }
+            50% { top: calc(100% - 2px); opacity: 0.5; }
+        }
+
+        /* 인증사진 가이드 */
+        .portrait-guide {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 220px; height: 280px; border: 3px solid #FF9F0A;
+            border-radius: 20px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.7);
+            display: none;
+        }
+
+        .portrait-guide.show { display: block; }
+
+        .portrait-icon {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 80px; opacity: 0.3;
+        }
+
+        /* 컨트롤 패널 */
+        .control-panel {
+            flex-shrink: 0; background: #1C1C1E;
+            padding: 20px 20px 30px 20px;
+            border-top: 1px solid #2C2C2E;
+        }
+
+        .mode-selector {
+            display: flex; gap: 10px; margin-bottom: 15px;
+        }
+
+        .mode-btn {
+            flex: 1; padding: 14px; background: #2C2C2E;
+            color: #8E8E93; border: none; border-radius: 12px;
+            font-size: 15px; font-weight: 600; cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-btn.active {
+            background: #00D9FF; color: #000;
+        }
+
+        .action-btn {
+            width: 100%; padding: 18px; border: none;
+            border-radius: 14px; font-size: 17px; font-weight: 700;
+            cursor: pointer; transition: all 0.3s; margin-bottom: 10px;
+        }
+
+        .btn-primary { background: #00D9FF; color: #000; }
+        .btn-secondary { background: #2C2C2E; color: white; }
+        .btn-capture { background: white; color: #000; display: none; }
+        .btn-capture.show { display: block; }
+        .btn-auth { background: #FF9F0A; color: white; }
+        .btn-back { background: #2C2C2E; color: #00D9FF; }
+
+        /* QR 확인 화면 */
+        .confirm-content {
+            flex: 1; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 40px 20px; background: #1C1C1E;
+        }
+
+        .confirm-icon {
+            font-size: 80px; margin-bottom: 20px;
+            animation: pop 0.3s ease;
+        }
+
+        @keyframes pop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .confirm-title {
+            font-size: 24px; font-weight: 700;
+            color: white; margin-bottom: 30px;
+        }
+
+        .qr-data-box {
+            width: 100%; max-width: 400px; padding: 20px;
+            background: rgba(0,217,255,0.1);
+            border: 2px solid #00D9FF; border-radius: 16px;
+            margin-bottom: 40px;
+        }
+
+        .qr-label {
+            font-size: 13px; color: #8E8E93; margin-bottom: 8px;
+        }
+
+        .qr-value {
+            font-size: 18px; font-weight: 700; color: #00D9FF;
+            word-break: break-all; font-family: monospace;
+        }
+
+        .confirm-buttons {
+            display: flex; flex-direction: column; gap: 10px;
+            width: 100%; max-width: 400px;
+        }
+
+        /* 촬영 완료 화면 */
+        .content-scroll {
+            flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+            padding: 20px; padding-bottom: 120px; background: #F2F2F7;
+        }
+
+        .auth-preview-section {
+            background: white; padding: 20px;
+            border-radius: 16px; margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .auth-preview-img {
+            width: 200px; height: 260px; border-radius: 12px;
+            object-fit: cover; border: 3px solid #00D9FF;
+            cursor: pointer; margin: 0 auto;
+        }
+
+        .btn-retake-auth {
+            width: 100%; margin-top: 15px; padding: 12px;
+            background: #FF9F0A; color: white; border: none;
+            border-radius: 10px; font-weight: 600; cursor: pointer;
+        }
+
+        .pose-section {
+            background: white; padding: 20px; border-radius: 16px;
+        }
+
+        .section-title {
+            font-size: 17px; font-weight: 700;
+            color: #000; margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            background: #F5F5F5; padding: 12px 15px;
+            border-radius: 10px; margin-bottom: 15px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        .progress-text {
+            font-size: 14px; font-weight: 600; color: #007AFF;
+        }
+
+        .progress-count {
+            font-size: 20px; font-weight: 700; color: #007AFF;
+        }
+
+        .pose-grid {
+            display: grid; grid-template-columns: 1fr;
+            gap: 15px;
+        }
+
+        .pose-card {
+            position: relative; border-radius: 12px;
+            overflow: hidden; background: #000;
+            aspect-ratio: 3/4;
+        }
+
+        .pose-card img {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+
+        .pose-number {
+            position: absolute; top: 12px; left: 12px;
+            width: 32px; height: 32px;
+            background: rgba(0,0,0,0.7); color: white;
+            border-radius: 50%; display: flex;
+            align-items: center; justify-content: center;
+            font-size: 16px; font-weight: 700;
+        }
+
+        /* 하단 고정 버튼 */
+        .footer-action {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            padding: 20px 20px 30px 20px;
+            background: linear-gradient(to top, white 80%, transparent);
+        }
+
+        .btn-next {
+            width: 100%; padding: 18px; background: #34C759;
+            color: white; border: none; border-radius: 14px;
+            font-size: 17px; font-weight: 700; cursor: pointer;
+        }
+
+        /* 모달 */
+        .modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95); z-index: 9999;
+            display: none; align-items: center; justify-content: center;
+            flex-direction: column;
+        }
+
+        .modal.show { display: flex; }
+
+        .modal-content {
+            background: #1C1C1E; padding: 30px 20px;
+            border-radius: 16px; max-width: 90%; text-align: center;
+        }
+
+        .modal-title {
+            font-size: 20px; font-weight: 700;
+            color: white; margin-bottom: 20px;
+        }
+
+        .modal-buttons {
+            display: flex; gap: 10px;
+        }
+
+        .modal-btn {
+            flex: 1; padding: 14px; border: none;
+            border-radius: 10px; font-weight: 600;
+            font-size: 16px; cursor: pointer;
+        }
+
+        .modal-btn-primary { background: #FF9F0A; color: white; }
+        .modal-btn-secondary { background: #2C2C2E; color: white; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. QR 스캔 화면 -->
+    <div id="scan-screen" class="screen active">
+        <div class="camera-view">
+            <video id="video" autoplay playsinline muted></video>
+            
+            <div class="overlay">
+                <div class="status-bar">
+                    <div class="status-text" id="qr-status">카메라 로딩 중...</div>
+                    <div class="session-badge">오늘 <span id="session-count">0</span>명</div>
+                </div>
+                
+                <div class="qr-guide" id="qr-guide">
+                    <div class="scan-line"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="mode-selector">
+                <button class="mode-btn active" id="mode-qr" onclick="setMode('qr')">
+                    📱 QR 스캔
+                </button>
+                <button class="mode-btn" id="mode-manual" onclick="setMode('manual')">
+                    📸 예약화면 촬영
+                </button>
+            </div>
+            <button class="action-btn btn-capture" id="btn-booking-capture" onclick="captureBooking()">
+                예약화면 촬영하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. QR 확인 화면 -->
+    <div id="confirm-screen" class="screen">
+        <div class="confirm-content">
+            <div class="confirm-icon">✅</div>
+            <div class="confirm-title">QR 코드 인식 완료</div>
+            
+            <div class="qr-data-box">
+                <div class="qr-label">인식된 예약 ID</div>
+                <div class="qr-value" id="confirmed-qr-data">-</div>
+            </div>
+
+            <div class="confirm-buttons">
+                <button class="action-btn btn-primary" onclick="proceedToAuth()">
+                    ✓ 확인 - 인증사진 촬영하기
+                </button>
+                <button class="action-btn btn-secondary" onclick="rescan()">
+                    ↻ 다시 스캔하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 인증사진 촬영 화면 -->
+    <div id="auth-screen" class="screen">
+        <div class="camera-view">
+            <video id="video2" autoplay playsinline muted></video>
+            
+            <div class="overlay">
+                <div class="status-bar">
+                    <div class="status-text" style="color: #FF9F0A;">
+                        📸 고객 인증사진 촬영
+                    </div>
+                </div>
+                
+                <div class="portrait-guide show">
+                    <div class="portrait-icon">👤</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <button class="action-btn btn-auth" onclick="captureAuth()">
+                📸 인증사진 촬영
+            </button>
+            <button class="action-btn btn-back" onclick="backToConfirm()">
+                ← 이전으로 돌아가기
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. 촬영 완료 화면 -->
+    <div id="complete-screen" class="screen">
+        <div class="content-scroll">
+            <!-- 인증사진 미리보기 -->
+            <div class="auth-preview-section">
+                <div class="section-title">📸 인증사진</div>
+                <img id="auth-img" class="auth-preview-img" alt="인증사진" onclick="retakeAuthConfirm()">
+                <button class="btn-retake-auth" onclick="retakeAuthConfirm()">
+                    인증사진 다시 촬영하기
+                </button>
+            </div>
+
+            <!-- 포즈 리스트 -->
+            <div class="pose-section">
+                <div class="section-title">🎯 선택 포즈 촬영</div>
+                <div class="progress-bar">
+                    <div class="progress-text">전체 포즈</div>
+                    <div class="progress-count">
+                        <span id="total-poses">0</span>개
+                    </div>
+                </div>
+                <div class="pose-grid" id="pose-grid"></div>
+            </div>
+        </div>
+
+        <div class="footer-action">
+            <button class="btn-next" onclick="completeSession()">
+                ✅ 촬영 완료 - 다음 고객으로
+            </button>
+        </div>
+    </div>
+
+    <!-- 인증사진 재촬영 확인 모달 -->
+    <div id="retake-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-title">인증사진을 다시 촬영하시겠습니까?</div>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-primary" onclick="confirmRetake()">
+                    네, 다시 촬영
+                </button>
+                <button class="modal-btn modal-btn-secondary" onclick="closeRetakeModal()">
+                    취소
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 인증사진 업로드 확인 모달 -->
+    <div id="upload-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-title">이 사진을 인증사진으로<br>업로드 하시겠습니까?</div>
+            <img id="upload-preview" style="max-width: 100%; max-height: 300px; border-radius: 12px; margin: 20px 0;">
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-primary" onclick="confirmUpload()">
+                    네, 업로드
+                </button>
+                <button class="modal-btn modal-btn-secondary" onclick="rejectUpload()">
+                    다시 촬영
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="scan-canvas"></canvas>
+    <canvas id="capture-canvas"></canvas>
+
+    <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+    <script src="https://unpkg.com/@zxing/library@latest"></script>
+    
+    <script>
+        // ========== 전역 변수 ==========
+        let currentMode = 'qr';
+        let currentReservationId = null;
+        let qrRawUrl = null;
+        let authPhotoBase64 = null;
+        let scanning = false;
+        let scanInterval = null;
+        let zxingReader = null;
+
+        // ========== URL 파라미터 읽기 ==========
+        function getUrlParam(name) {
+            const params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
+
+        // ========== 초기화 ==========
+        function init() {
+            const page = getUrlParam('page') || 'scan';
+            const reservationId = getUrlParam('reservation');
+            
+            console.log('페이지:', page, '예약 ID:', reservationId);
+            
+            if (page === 'scan') {
+                showScanScreen();
+            } else if (page === 'confirm' && reservationId) {
+                currentReservationId = reservationId;
+                showConfirmScreen();
+            } else if (page === 'auth' && reservationId) {
+                currentReservationId = reservationId;
+                showAuthScreen();
+            } else if (page === 'shoot' && reservationId) {
+                currentReservationId = reservationId;
+                showCompleteScreen();
+            } else {
+                showScanScreen();
+            }
+        }
+
+        // ========== 화면 전환 ==========
+        function hideAllScreens() {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        }
+
+        function showScanScreen() {
+            hideAllScreens();
+            document.getElementById('scan-screen').classList.add('active');
+            initCamera();
+        }
+
+        function showConfirmScreen() {
+            hideAllScreens();
+            document.getElementById('confirm-screen').classList.add('active');
+            document.getElementById('confirmed-qr-data').textContent = currentReservationId;
+        }
+
+        function showAuthScreen() {
+            hideAllScreens();
+            document.getElementById('auth-screen').classList.add('active');
+            initAuthCamera();
+        }
+
+        function showCompleteScreen() {
+            hideAllScreens();
+            document.getElementById('complete-screen').classList.add('active');
+            loadPoses();
+        }
+
+        // ========== 카메라 초기화 ==========
+        async function initCamera() {
+            const video = document.getElementById('video');
+            const status = document.getElementById('qr-status');
+            
+            try {
+                status.textContent = '📷 카메라 권한 요청 중...';
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                
+                status.textContent = '🔍 QR 코드를 스캔하세요';
+                startDualQRScanner();
+                
+            } catch (err) {
+                status.textContent = '❌ 카메라 권한 필요';
+                status.style.color = '#FF3B30';
+            }
+        }
+
+        // ========== QR 스캐너 ==========
+        function startDualQRScanner() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('scan-canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            
+            scanInterval = setInterval(() => {
+                if (scanning || currentMode !== 'qr') return;
+                
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    if (typeof jsQR !== 'undefined') {
+                        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                            inversionAttempts: "attemptBoth"
+                        });
+                        
+                        if (code) {
+                            handleQRSuccess(code.data);
+                        }
+                    }
+                }
+            }, 100);
+            
+            initZXingScanner(video);
+        }
+
+        async function initZXingScanner(video) {
+            try {
+                if (typeof ZXing === 'undefined') {
+                    await new Promise((resolve) => {
+                        const check = setInterval(() => {
+                            if (typeof ZXing !== 'undefined') {
+                                clearInterval(check);
+                                resolve();
+                            }
+                        }, 100);
+                    });
+                }
+                
+                zxingReader = new ZXing.BrowserQRCodeReader();
+                
+                await zxingReader.decodeFromVideoElement(video, (result, err) => {
+                    if (result && !scanning && currentMode === 'qr') {
+                        handleQRSuccess(result.text);
+                    }
+                });
+                
+            } catch (err) {
+                console.error('ZXing 에러:', err);
+            }
+        }
+
+        // ========== QR 인식 성공 ==========
+        function handleQRSuccess(rawUrl) {
+            if (scanning) return;
+            
+            scanning = true;
+            qrRawUrl = rawUrl;
+            
+            // URL에서 ID 추출 (예: f1770641581014x2324599298334726...)
+            const match = rawUrl.match(/f(\d{13,}x\d{15,})/);
+            const reservationId = match ? match[1] : rawUrl;
+            
+            currentReservationId = reservationId;
+            
+            const guide = document.getElementById('qr-guide');
+            const status = document.getElementById('qr-status');
+            
+            guide.style.borderColor = '#34C759';
+            guide.style.boxShadow = '0 0 40px #34C759, 0 0 0 9999px rgba(0,0,0,0.7)';
+            status.textContent = '✅ QR 인식 성공!';
+            status.style.color = '#34C759';
+            
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            
+            // 버블로 데이터 전송
+            if (typeof bubble_fn_qr_scanned === 'function') {
+                bubble_fn_qr_scanned(reservationId, qrRawUrl);
+            }
+            
+            setTimeout(() => {
+                // 버블 워크플로우로 페이지 이동
+                window.location.href = `?page=confirm&reservation=${reservationId}`;
+            }, 800);
+        }
+
+        // ========== 모드 전환 ==========
+        function setMode(mode) {
+            currentMode = mode;
+            
+            const modeQR = document.getElementById('mode-qr');
+            const modeManual = document.getElementById('mode-manual');
+            const captureBtn = document.getElementById('btn-booking-capture');
+            const guide = document.getElementById('qr-guide');
+            const status = document.getElementById('qr-status');
+            
+            if (mode === 'qr') {
+                modeQR.classList.add('active');
+                modeManual.classList.remove('active');
+                captureBtn.classList.remove('show');
+                guide.style.borderColor = '#00D9FF';
+                status.textContent = '🔍 QR 코드를 스캔하세요';
+                status.style.color = '#00D9FF';
+                scanning = false;
+            } else {
+                modeManual.classList.add('active');
+                modeQR.classList.remove('active');
+                captureBtn.classList.add('show');
+                guide.style.borderColor = '#FF9F0A';
+                status.textContent = '📸 예약화면을 촬영하세요';
+                status.style.color = '#FF9F0A';
+            }
+        }
+
+        // ========== 예약화면 촬영 (수동) ==========
+        function captureBooking() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('capture-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.92);
+            
+            const btn = document.getElementById('btn-booking-capture');
+            const guide = document.getElementById('qr-guide');
+            const status = document.getElementById('qr-status');
+            
+            btn.textContent = '✅ 촬영 완료!';
+            btn.style.background = '#34C759';
+            guide.style.borderColor = '#34C759';
+            status.textContent = '✅ 예약화면 촬영 완료!';
+            status.style.color = '#34C759';
+            
+            if (navigator.vibrate) navigator.vibrate(200);
+            
+            currentReservationId = 'MANUAL_' + Date.now();
+            
+            // 버블로 수동 촬영 데이터 전송
+            if (typeof bubble_fn_manual_capture === 'function') {
+                bubble_fn_manual_capture(currentReservationId, imageData);
+            }
+            
+            setTimeout(() => {
+                window.location.href = `?page=confirm&reservation=${currentReservationId}`;
+            }, 800);
+        }
+
+        // ========== QR 확인 화면 ==========
+        function rescan() {
+            scanning = false;
+            currentReservationId = null;
+            qrRawUrl = null;
+            window.location.href = '?page=scan';
+        }
+
+        function proceedToAuth() {
+            window.location.href = `?page=auth&reservation=${currentReservationId}`;
+        }
+
+        function backToConfirm() {
+            const video2 = document.getElementById('video2');
+            if (video2.srcObject) {
+                video2.srcObject.getTracks().forEach(track => track.stop());
+            }
+            window.location.href = `?page=confirm&reservation=${currentReservationId}`;
+        }
+
+        // ========== 인증사진 촬영 ==========
+        async function initAuthCamera() {
+            const video = document.getElementById('video2');
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1080 },
+                        height: { ideal: 1440 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                
+            } catch (err) {
+                alert('카메라 접근 실패: ' + err.message);
+            }
+        }
+
+        function captureAuth() {
+            const video = document.getElementById('video2');
+            const canvas = document.getElementById('capture-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            
+            authPhotoBase64 = canvas.toDataURL('image/jpeg', 0.92);
+            
+            // 업로드 확인 모달 표시
+            document.getElementById('upload-preview').src = authPhotoBase64;
+            document.getElementById('upload-modal').classList.add('show');
+        }
+
+        function confirmUpload() {
+            document.getElementById('upload-modal').classList.remove('show');
+            
+            const video2 = document.getElementById('video2');
+            if (video2.srcObject) {
+                video2.srcObject.getTracks().forEach(track => track.stop());
+            }
+            
+            // 버블로 인증사진 업로드
+            if (typeof bubble_fn_upload_auth === 'function') {
+                bubble_fn_upload_auth(currentReservationId, authPhotoBase64);
+            }
+            
+            if (navigator.vibrate) navigator.vibrate([200,setTimeout(() => {
+            window.location.href = `?page=shoot&reservation=${currentReservationId}`;
+        }, 500);
+    }
+
+    function rejectUpload() {
+        document.getElementById('upload-modal').classList.remove('show');
+        authPhotoBase64 = null;
+    }
+
+    // ========== 촬영 완료 화면 ==========
+    function loadPoses() {
+        // 인증사진 표시
+        if (authPhotoBase64) {
+            document.getElementById('auth-img').src = authPhotoBase64;
+        }
+        
+        // 버블에서 포즈 리스트 가져오기
+        if (typeof bubble_fn_get_poses === 'function') {
+            bubble_fn_get_poses(currentReservationId);
+        }
+    }
+
+    // 버블에서 호출할 함수 (포즈 렌더링)
+    function renderPoses(poseList) {
+        const grid = document.getElementById('pose-grid');
+        grid.innerHTML = '';
+        
+        document.getElementById('total-poses').textContent = poseList.length;
+        
+        poseList.forEach((pose, index) => {
+            const card = document.createElement('div');
+            card.className = 'pose-card';
+            
+            card.innerHTML = `
+                <div class="pose-number">${index + 1}</div>
+                <img src="${pose.imageUrl}" alt="포즈 ${index + 1}">
+            `;
+            
+            grid.appendChild(card);
+        });
+    }
+
+    // 인증사진 재촬영
+    function retakeAuthConfirm() {
+        document.getElementById('retake-modal').classList.add('show');
+    }
+
+    function closeRetakeModal() {
+        document.getElementById('retake-modal').classList.remove('show');
+    }
+
+    function confirmRetake() {
+        document.getElementById('retake-modal').classList.remove('show');
+        window.location.href = `?page=auth&reservation=${currentReservationId}`;
+    }
+
+    // 세션 완료
+    function completeSession() {
+        if (confirm('촬영을 완료하고 다음 고객으로 넘어갈까요?')) {
+            // 세션 카운트 증가
+            let count = parseInt(localStorage.getItem('session_count') || '0');
+            count++;
+            localStorage.setItem('session_count', count);
+            
+            // 버블로 세션 완료 알림
+            if (typeof bubble_fn_session_complete === 'function') {
+                bubble_fn_session_complete(currentReservationId);
+            }
+            
+            // 초기화 후 QR 스캔으로
+            currentReservationId = null;
+            authPhotoBase64 = null;
+            scanning = false;
+            
+            window.location.href = '?page=scan';
+        }
+    }
+
+    // ========== 앱 시작 ==========
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+</script>
