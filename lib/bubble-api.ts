@@ -272,6 +272,9 @@ export async function checkReservationExists(
  * 예약 상태 업데이트 (pose_reservation)
  * PATCH /api/1.1/obj/pose_reservation/{id}
  * 
+ * ⚠️ 중요: Bubble PATCH는 성공 시 빈 응답(empty body)을 반환할 수 있음.
+ *   이 경우 res.json()이 파싱 에러를 던지므로, HTTP 2xx이면 성공으로 처리.
+ * 
  * 환경별 동작:
  * - 운영(BUBBLE_USE_VERSION_TEST false/미설정): 가상 성공만 반환.
  * - 테스트(BUBBLE_USE_VERSION_TEST=true): 실제 PATCH 전송.
@@ -284,7 +287,7 @@ export async function updateReservationStatus(
   const isVersionTest = USE_VERSION_TEST;
 
   if (!isVersionTest) {
-    console.log(`[Bubble API] 운영 환경 - updateReservationStatus 실제 전송 없음 (가상 성공): ${cleanId} → ${status}`);
+    console.log(`[Bubble API] 운영 환경 - updateReservationStatus 가상 성공: ${cleanId} → ${status}`);
     return { _id: cleanId, status };
   }
 
@@ -301,19 +304,33 @@ export async function updateReservationStatus(
       headers: headers(),
       body: JSON.stringify({ status }),
     });
+
     if (!res.ok) {
       const err = await res.text();
-      console.error("updateReservationStatus", res.status, err);
+      console.error(`[updateReservationStatus] HTTP ${res.status} 실패:`, err);
       return null;
     }
-    const json: BubbleItemResponse<PoseReservation> = await res.json();
-    const result = json?.response ?? null;
-    if (result) {
-      console.log(`테스트 DB에 예약 상태가 성공적으로 업데이트되었습니다: ${reservationId} → ${status}`);
+
+    // ✅ Bubble PATCH 성공 (HTTP 2xx) — 빈 응답도 정상 처리
+    const rawText = await res.text();
+    console.log(`[updateReservationStatus] ✅ ${cleanId} → "${status}" 성공 (HTTP ${res.status})`);
+
+    if (!rawText || rawText.trim() === "") {
+      // Bubble은 PATCH 성공 시 빈 응답을 반환할 수 있음 → 정상
+      return { _id: cleanId, status };
     }
-    return result;
+
+    try {
+      const json = JSON.parse(rawText);
+      const result = json?.response ?? json;
+      return { _id: result?._id || cleanId, status: result?.status || status };
+    } catch {
+      // JSON 파싱 실패여도 HTTP가 성공이면 OK
+      console.warn(`[updateReservationStatus] 응답 JSON 파싱 실패 (무시 가능):`, rawText.substring(0, 100));
+      return { _id: cleanId, status };
+    }
   } catch (e) {
-    console.error("updateReservationStatus", e);
+    console.error("[updateReservationStatus] 예외:", e);
     return null;
   }
 }

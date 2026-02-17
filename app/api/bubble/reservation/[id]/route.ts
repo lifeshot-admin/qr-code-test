@@ -45,6 +45,9 @@ export async function GET(
 /**
  * PATCH: 예약 상태 업데이트
  * Body: { status: string }
+ * 
+ * ✅ 성공 조건: updateReservationStatus가 non-null 결과를 반환하면 success: true
+ *   Bubble PATCH는 빈 응답을 반환할 수 있으므로, 함수 내부에서 안전 처리됨.
  */
 export async function PATCH(
   request: NextRequest,
@@ -60,16 +63,23 @@ export async function PATCH(
     if (!status) {
       return NextResponse.json({ error: "status required" }, { status: 400 });
     }
+
+    console.log(`[PATCH /reservation/${id}] 상태 업데이트 요청: "${status}"`);
+
     const result = await updateReservationStatus(id, status);
+
     if (!result) {
+      console.error(`[PATCH /reservation/${id}] updateReservationStatus가 null 반환`);
       return NextResponse.json(
         { error: "Bubble API update failed" },
         { status: 502 }
       );
     }
-    return NextResponse.json(result);
-  } catch (e) {
-    console.error("PATCH reservation status", e);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+
+    console.log(`[PATCH /reservation/${id}] ✅ 성공:`, result);
+    return NextResponse.json({ success: true, ...result });
+  } catch (e: any) {
+    console.error(`[PATCH /reservation/${id}] 예외:`, e?.message || e);
+    return NextResponse.json({ error: "Server error", message: e?.message }, { status: 500 });
   }
 }
