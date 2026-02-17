@@ -70,13 +70,13 @@ function ErrorContent() {
         >
           <Link
             href="/cheiz"
-            className="block w-full bg-skyblue text-white font-bold py-4 px-8 rounded-3xl hover:bg-opacity-90 transition-all transform hover:scale-105 shadow-lg"
+            className="block w-full bg-[#0055FF] text-white font-bold py-4 px-8 rounded-xl hover:bg-opacity-90 transition-all shadow-sm"
           >
             홈으로 돌아가기
           </Link>
           <Link
-            href="/api/auth/signin"
-            className="block w-full bg-white text-skyblue border-2 border-skyblue font-bold py-4 px-8 rounded-3xl hover:bg-skyblue hover:text-white transition-all"
+            href="/auth/signin"
+            className="block w-full bg-white text-[#0055FF] border-2 border-[#0055FF] font-bold py-4 px-8 rounded-xl hover:bg-[#0055FF] hover:text-white transition-all"
           >
             다시 로그인하기
           </Link>
@@ -101,7 +101,7 @@ export default function AuthErrorPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid"></div>
       </div>
     }>
       <ErrorContent />

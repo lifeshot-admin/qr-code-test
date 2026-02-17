@@ -3,9 +3,12 @@
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import Image from "next/image";
+import { Check } from "lucide-react";
 import { useReservationStore, type Tour, type Spot } from "@/lib/reservation-store";
+import { useHasMounted } from "@/lib/use-has-mounted";
+import PoseLightbox from "@/app/cheiz/components/PoseLightbox";
 
 type SpotPose = {
   _id: string;
@@ -26,6 +29,7 @@ function normalizeImageUrl(url: string | undefined): string | undefined {
 }
 
 function PosesContent() {
+  const hasMounted = useHasMounted();
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -64,7 +68,7 @@ function PosesContent() {
     if (status === "loading") return;
 
     if (!session) {
-      router.push("/api/auth/signin");
+      router.replace("/auth/signin?callbackUrl=" + encodeURIComponent(window.location.pathname + window.location.search));
       return;
     }
 
@@ -81,7 +85,17 @@ function PosesContent() {
       return;
     }
 
-    setTourId(parsedTourId); // ✅ Zustand
+    // ✅ [STALE 가드] URL의 tour_id와 Store의 tourId가 다르면 경고
+    if (tourId !== null && tourId !== parsedTourId) {
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("🚨 [POSES STALE 가드] URL tour_id와 Store tourId 불일치!");
+      console.log(`  📥 URL tour_id: ${parsedTourId}`);
+      console.log(`  📦 Store tourId (stale): ${tourId}`);
+      console.log("  ✅ URL 값으로 강제 덮어씀");
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    }
+    
+    setTourId(parsedTourId); // ✅ Zustand (URL 값으로 강제 설정)
     setSpotId(parsedSpotId);
     
     // ✅ [강제] URL에서 folder_id를 Zustand에 자동 주입
@@ -202,10 +216,8 @@ function PosesContent() {
     const isCurrentlySelected = isPoseSelected(spotId, poseId);
 
     if (isCurrentlySelected) {
-      // 제거 (항상 가능)
       removePose(spotId, poseId);
     } else {
-      // 추가 (store에서 검증)
       const success = addPose(spotId, poseId);
       if (!success) {
         alert(`최대 ${tour.max_total}개까지만 선택 가능합니다.`);
@@ -213,17 +225,31 @@ function PosesContent() {
     }
   };
 
+  // Lightbox 상태
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const openLightbox = useCallback((index: number) => {
+    setLightboxIndex(index);
+    setLightboxOpen(true);
+  }, []);
+
+  const checkPoseSelected = useCallback((poseId: string) => {
+    return spotId ? isPoseSelected(spotId, poseId) : false;
+  }, [spotId, isPoseSelected]);
+
   // 뒤로가기
+  // ✅ URL 파라미터 우선 사용 (stale store 값 방지)
   const handleBack = () => {
-    if (tourId) {
-      // ✅ [강제] 필수 파라미터 모두 전달
-      const url = `/cheiz/reserve/spots?tour_id=${tourId}${folderId ? `&folder_id=${folderId}` : ''}`;
+    const safeTourId = tourIdParam ? parseInt(tourIdParam, 10) : tourId;
+    if (safeTourId) {
+      const url = `/cheiz/reserve/spots?tour_id=${safeTourId}${folderId ? `&folder_id=${folderId}` : ''}`;
       
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       console.log("🔙 [BACK] Returning to spots:");
-      console.log("  🎫 tour_id:", tourId);
-      console.log("  📁 folder_id:", folderId || "⚠️ MISSING");
-      console.log("  📍 URL:", url);
+      console.log(`  🎫 tour_id (URL우선): ${safeTourId}`);
+      console.log(`  📁 folder_id: ${folderId || "(신규 예약 - 없음)"}`);
+      console.log(`  📡 최종 URL: ${url}`);
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
       router.push(url);
@@ -232,15 +258,15 @@ function PosesContent() {
     }
   };
 
-  // 현재 스팟의 선택 개수
-  const currentSpotCount = spotId ? getSpotSelectedCount(spotId) : 0;
-  const currentTotalCount = getTotalSelectedCount();
+  // 현재 스팟의 선택 개수 (hydration-safe)
+  const currentSpotCount = hasMounted && spotId ? getSpotSelectedCount(spotId) : 0;
+  const currentTotalCount = hasMounted ? getTotalSelectedCount() : 0;
 
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid mx-auto mb-4"></div>
           <p className="text-gray-600">포즈 정보를 불러오는 중...</p>
         </div>
       </div>
@@ -248,109 +274,146 @@ function PosesContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white pb-32">
-      {/* Sub Navigation (레이아웃 헤더와 중복 제거) */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-2 text-sm text-gray-500">
+    <div className="min-h-screen bg-[#FFF9F5] pb-44">
+      {/* Header */}
+      <div className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-orange-100/50">
+        <div className="max-w-md mx-auto px-5 py-3 flex items-center justify-between">
           <button
             onClick={handleBack}
-            className="hover:text-skyblue transition-colors"
+            className="text-gray-500 hover:text-[#0055FF] transition-colors text-sm flex items-center gap-1"
           >
-            ← 스팟 선택
+            <span className="text-lg">&#8249;</span> 스팟 선택
           </button>
-          <span className="text-gray-300">|</span>
-          <span className="font-medium text-gray-700">포즈 선택</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-8 h-1.5 rounded-full bg-[#0055FF]/30" />
+            <div className="w-8 h-1.5 rounded-full bg-[#0055FF]" />
+            <div className="w-8 h-1.5 rounded-full bg-gray-200" />
+          </div>
+          <span className="text-sm font-bold text-[#0055FF]">
+            {currentSpotCount}개
+          </span>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h2 className="text-4xl font-bold text-gray-800 mb-2">
-            {spot?.spot_name || `Spot ${spotId}`} - 포즈 선택
-          </h2>
-          <p className="text-gray-600">
-            원하는 포즈를 선택해보세요 ✨
+      {/* Spot Title */}
+      <div className="max-w-md mx-auto px-5 pt-6 pb-2">
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
+          <p className="text-sm font-medium text-[#FF4B2B] tracking-wider uppercase mb-1">
+            Step 2 of 3
           </p>
-        </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">
+            {spot?.spot_name || `Spot ${spotId}`}
+          </h2>
+          <p className="text-sm text-gray-500">
+            사진을 터치하면 크게 볼 수 있어요. 우측 상단 체크로 선택!
+          </p>
+        </motion.div>
+      </div>
 
-        {/* Persona Filter with Count */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3 overflow-x-auto pb-2">
-            <span className="text-gray-700 font-medium whitespace-nowrap">
-              페르소나:
-            </span>
-            {personas.map((persona) => {
-              const count = getPersonaCount(persona);
-              return (
-                <button
-                  key={persona}
-                  onClick={() => setSelectedPersona(persona)}
-                  className={`px-6 py-2 rounded-3xl font-medium transition-all whitespace-nowrap flex items-center gap-2 ${
-                    selectedPersona === persona
-                      ? "bg-skyblue text-white shadow-lg scale-105"
-                      : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-200"
-                  }`}
-                >
-                  {persona}
-                  <span className={`text-xs ${
-                    selectedPersona === persona ? "text-white" : "text-gray-500"
-                  }`}>
-                    ({count})
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+      {/* Persona Filter */}
+      <div className="max-w-md mx-auto px-5 py-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          {personas.map((persona) => {
+            const count = getPersonaCount(persona);
+            return (
+              <button
+                key={persona}
+                onClick={() => setSelectedPersona(persona)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap flex items-center gap-1 ${
+                  selectedPersona === persona
+                    ? "bg-[#0055FF] text-white shadow-sm"
+                    : "bg-white text-gray-600 border border-gray-200"
+                }`}
+              >
+                {persona}
+                <span className={`text-xs ${
+                  selectedPersona === persona ? "text-white/70" : "text-gray-400"
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Pose Gallery */}
+      {/* Pose Gallery - 2 Column, click zones */}
+      <div className="max-w-md mx-auto px-5 py-2">
         {loadingPoses ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-skyblue border-solid mx-auto mb-4"></div>
-            <p className="text-gray-600">포즈를 불러오는 중...</p>
+          <div className="text-center py-16">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-[#0055FF] border-solid mx-auto mb-4" />
+            <p className="text-gray-400 text-sm">포즈를 불러오는 중...</p>
           </div>
         ) : poses.length === 0 ? (
-          <p className="text-gray-500 text-center py-12">
+          <p className="text-gray-400 text-center py-16 text-sm">
             선택한 조건에 맞는 포즈가 없습니다.
           </p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {poses.map((pose) => {
+          <div className="grid grid-cols-2 gap-3">
+            {poses.map((pose, index) => {
               const isSelected = spotId ? isPoseSelected(spotId, pose._id) : false;
 
               return (
                 <motion.div
                   key={pose._id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  whileHover={{ scale: 1.05 }}
-                  transition={{ duration: 0.3 }}
-                  onClick={() => togglePoseSelection(pose._id)}
-                  className={`relative aspect-square rounded-3xl overflow-hidden cursor-pointer shadow-lg ${
-                    isSelected ? "ring-4 ring-skyblue" : ""
-                  }`}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.04 }}
+                  className="relative"
                 >
-                  {pose.image && (
-                    <Image
-                      src={normalizeImageUrl(pose.image) || ""}
-                      alt={`Pose ${pose._id}`}
-                      fill
-                      className="object-cover"
-                    />
-                  )}
-                  {isSelected && (
-                    <div className="absolute inset-0 bg-skyblue bg-opacity-30 flex items-center justify-center">
-                      <div className="bg-skyblue text-white rounded-full w-12 h-12 flex items-center justify-center text-2xl">
-                        ✓
+                  {/* Card: tap anywhere to open lightbox */}
+                  <div
+                    onClick={() => openLightbox(index)}
+                    className={`relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer shadow-sm transition-all ${
+                      isSelected ? "ring-[3px] ring-[#0055FF] ring-offset-2" : "border border-gray-100"
+                    }`}
+                  >
+                    {pose.image ? (
+                      <Image
+                        src={normalizeImageUrl(pose.image) || ""}
+                        alt={`Pose ${pose._id}`}
+                        fill
+                        className="object-cover"
+                        quality={60}
+                        sizes="(max-width: 768px) 45vw, 200px"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-gray-100 flex items-center justify-center text-gray-300 text-xs">
+                        이미지 없음
                       </div>
-                    </div>
-                  )}
-                  {pose.persona && (
-                    <div className="absolute top-2 right-2 bg-white bg-opacity-90 text-skyblue px-3 py-1 rounded-full text-sm font-medium">
-                      {pose.persona}
-                    </div>
-                  )}
+                    )}
+
+                    {/* Selected overlay */}
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-[#0055FF]/15" />
+                    )}
+
+                    {/* Persona tag (bottom-left) */}
+                    {pose.persona && (
+                      <div className="absolute bottom-2 left-2 bg-black/40 backdrop-blur-sm text-white px-2 py-0.5 rounded-full text-[10px] font-medium">
+                        {pose.persona}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Select Button (top-right) - separate click zone */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePoseSelection(pose._id);
+                    }}
+                    className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center transition-all z-10 shadow-md ${
+                      isSelected
+                        ? "bg-[#0055FF] text-white scale-110"
+                        : "bg-white/90 text-gray-400 hover:text-[#0055FF] hover:bg-white"
+                    }`}
+                  >
+                    <Check className="w-4 h-4" strokeWidth={isSelected ? 3 : 2} />
+                  </button>
                 </motion.div>
               );
             })}
@@ -358,30 +421,47 @@ function PosesContent() {
         )}
       </div>
 
-      {/* Floating Progress Bar (Fixed) */}
+      {/* Lightbox */}
+      <PoseLightbox
+        poses={poses}
+        initialIndex={lightboxIndex}
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        isPoseSelected={checkPoseSelected}
+        onToggleSelect={togglePoseSelection}
+      />
+
+      {/* Fixed Bottom Bar - Skip (Ghost) + Select (Main) */}
       {tour && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-2xl z-50">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="text-center mb-2">
-              <p className="text-sm text-gray-600">
-                이 스팟: <span className="font-bold text-skyblue">{currentSpotCount}개</span> 선택
+        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 z-50">
+          <div className="max-w-md mx-auto px-5 py-3">
+            {/* Counter */}
+            <div className="flex items-center justify-between text-sm mb-3">
+              <span className="text-gray-500">
+                이 스팟 <span className="font-bold text-[#0055FF]">{currentSpotCount}개</span>
                 {spot?.min_count_limit && spot.min_count_limit > 0 && (
-                  <span className="text-gray-500"> (최소 {spot.min_count_limit}개)</span>
+                  <span className="text-gray-400"> / 최소 {spot.min_count_limit}개</span>
                 )}
-              </p>
-              <p className="text-lg font-bold text-gray-800">
-                전체 선택: {currentTotalCount} / {tour.max_total}
-                {tour.min_total && tour.min_total > 0 && (
-                  <span className="text-sm text-gray-500"> (최소 {tour.min_total}개 필요)</span>
-                )}
-              </p>
+              </span>
+              <span className="font-bold text-gray-700">
+                전체 {currentTotalCount}/{tour.max_total}
+              </span>
             </div>
-            <button
-              onClick={handleBack}
-              className="w-full py-4 rounded-3xl font-bold text-lg bg-skyblue text-white hover:bg-opacity-90 shadow-lg transition-all"
-            >
-              스팟 선택으로 돌아가기
-            </button>
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={handleBack}
+                className="flex-1 py-3.5 rounded-2xl font-medium text-sm border border-gray-300 text-gray-500 bg-transparent hover:bg-gray-50 transition-colors"
+              >
+                건너뛰기
+              </button>
+              <button
+                onClick={handleBack}
+                className="flex-[2] py-3.5 rounded-2xl font-bold text-sm bg-[#0055FF] text-white shadow-lg shadow-blue-500/25 active:scale-[0.98] transition-all"
+              >
+                포즈 예약하기 ({currentSpotCount})
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -393,7 +473,7 @@ export default function PosesPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid"></div>
       </div>
     }>
       <PosesContent />

@@ -40,7 +40,7 @@ export async function GET(
     if (tourIdParam) {
       const tourId = parseInt(tourIdParam, 10);
       console.log("  ✅ parseInt 후 tourId (number):", tourId);
-      console.log("  ⚠️ tourId가 11093이면 잘못됨! 30처럼 작은 숫자여야 함!");
+      console.log("  ⚠️ tourId가 11093이면 잘못됨! 27처럼 작은 숫자여야 함!");
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
       if (!isNaN(tourId)) {

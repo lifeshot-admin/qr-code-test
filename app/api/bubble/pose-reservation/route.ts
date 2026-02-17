@@ -190,16 +190,30 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json();
     
+    // Bubble POST 응답: { id: "...", status: "..." } 또는 { _id: "..." }
+    const reservationId = data.id || data._id || data.response?.id || "";
+    
+    // 6자리 백업 코드 추출
+    const idNumbers = (reservationId || "").replace(/\D/g, "");
+    const backupCode = idNumbers.slice(-6);
+    
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log(`${getTimestamp()} ✅✅✅ [BUBBLE] pose_reservation created successfully!`);
-    console.log(`${getTimestamp()} 🆔 Bubble Unique ID:`, data.id);
+    console.log(`${getTimestamp()} 🆔 Bubble Unique ID:`, reservationId);
+    console.log(`${getTimestamp()} 🔢 6자리 백업 코드:`, backupCode);
     console.log(`${getTimestamp()} 🎯 Used endpoint:`, successfulEndpoint);
-    console.log(`${getTimestamp()} 📦 Full response:`, JSON.stringify(data, null, 2));
+    console.log(`${getTimestamp()} 📦 Full response keys:`, Object.keys(data));
+    console.log(`${getTimestamp()} 📦 data.id:`, data.id, "| data._id:", data._id);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    if (!reservationId) {
+      console.error(`${getTimestamp()} ❌ [CRITICAL] Bubble 응답에 ID가 없음! 전체 응답:`, JSON.stringify(data).substring(0, 500));
+    }
 
     return NextResponse.json({
       success: true,
-      reservation_id: data.id,  // 버블에서 생성된 Unique ID
+      reservation_id: reservationId,
+      backup_code: backupCode,
       data: data,
     });
 

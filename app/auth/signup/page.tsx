@@ -642,14 +642,14 @@ function SignupContent() {
     const bgColor =
       toast.type === "success" ? "bg-green-500" :
       toast.type === "error" ? "bg-red-500" :
-      "bg-skyblue";
+      "bg-[#0055FF]";
 
     return (
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 ${bgColor} text-white px-6 py-3 rounded-3xl shadow-lg flex items-center gap-2 max-w-md`}
+        className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 ${bgColor} text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 max-w-md`}
       >
         <span className="text-lg">
           {toast.type === "success" ? "\u2713" : toast.type === "error" ? "\u2717" : "\u24D8"}
@@ -675,7 +675,7 @@ function SignupContent() {
           className="space-y-6"
         >
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">{label.title}</h2>
+            <h2 className="text-2xl font-bold text-[#1A1A1A] mb-2">{label.title}</h2>
             <p className="text-gray-600">{label.description}</p>
           </div>
 
@@ -694,18 +694,18 @@ function SignupContent() {
     <div className="space-y-4">
       {loadingTerms ? (
         <div className="flex items-center justify-center py-12">
-          <div className="w-8 h-8 border-4 border-skyblue border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-[#0055FF] border-t-transparent rounded-full animate-spin" />
           <span className="ml-3 text-gray-500">약관 불러오는 중...</span>
         </div>
       ) : (
         <>
-          <div className="bg-gray-50 rounded-3xl p-4 border border-gray-200">
+          <div className="bg-[#F8F9FA] rounded-2xl p-4 border border-gray-200">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={allVisibleTermsAgreed()}
                 onChange={(e) => toggleAllTerms(e.target.checked)}
-                className="w-5 h-5 text-skyblue rounded focus:ring-skyblue accent-[#00AEEF]"
+                className="w-5 h-5 text-[#0055FF] rounded focus:ring-[#0055FF] accent-[#0055FF]"
               />
               <span className="font-bold text-gray-800 text-lg">전체 동의하기</span>
             </label>
@@ -716,13 +716,13 @@ function SignupContent() {
               const agreement = signupData.termsAgreements.find((a) => a.policyType === term.policyType);
               const koName = TERMS_KO_NAMES[term.policyType] || term.title || term.policyType.replace(/_/g, " ");
               return (
-                <div key={term.policyType} className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-3xl">
+                <div key={term.policyType} className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-2xl">
                   <label className="flex items-center gap-3 cursor-pointer flex-1">
                     <input
                       type="checkbox"
                       checked={agreement?.agreed || false}
                       onChange={(e) => toggleTermAgreement(term.policyType, e.target.checked)}
-                      className="w-5 h-5 text-skyblue rounded focus:ring-skyblue accent-[#00AEEF]"
+                      className="w-5 h-5 text-[#0055FF] rounded focus:ring-[#0055FF] accent-[#0055FF]"
                     />
                     <span className="text-gray-700">
                       <span className={`text-xs font-bold mr-2 ${term.isRequired ? "text-red-500" : "text-gray-400"}`}>
@@ -733,7 +733,7 @@ function SignupContent() {
                   </label>
                   <button
                     onClick={() => handleViewTerms(term)}
-                    className="text-sm text-skyblue hover:underline whitespace-nowrap ml-2"
+                    className="text-sm text-[#0055FF] hover:underline whitespace-nowrap ml-2"
                   >
                     보기
                   </button>
@@ -760,10 +760,10 @@ function SignupContent() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto"
+              className="bg-white rounded-2xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-gray-800 mb-4">
+              <h3 className="text-xl font-bold text-[#1A1A1A] mb-4">
                 {TERMS_KO_NAMES[selectedTermsModal.policyType] || selectedTermsModal.title || selectedTermsModal.policyType.replace(/_/g, " ")}
               </h3>
               <div className="text-gray-600 text-sm leading-relaxed whitespace-pre-wrap">
@@ -774,7 +774,7 @@ function SignupContent() {
                   logUserAction("약관 모달 닫기", { policyType: selectedTermsModal?.policyType });
                   setSelectedTermsModal(null);
                 }}
-                className="w-full mt-6 bg-skyblue text-white font-bold py-3 rounded-3xl hover:bg-opacity-90 transition-all"
+                className="w-full mt-6 bg-[#0055FF] text-white font-bold py-3 rounded-xl hover:bg-opacity-90 transition-all"
               >
                 닫기
               </button>
@@ -788,14 +788,14 @@ function SignupContent() {
   // ---- Email Verification ----
   const renderVerifyStep = () => (
     <div className="space-y-4">
-      <div className="bg-gray-50 rounded-3xl p-4 text-center">
+      <div className="bg-[#F8F9FA] rounded-2xl p-4 text-center">
         <p className="text-gray-700 text-sm">인증 코드를 전송했습니다</p>
-        <p className="text-lg font-bold text-skyblue">{signupData.email}</p>
+        <p className="text-lg font-bold text-[#0055FF]">{signupData.email}</p>
       </div>
 
       {isVerified ? (
         <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }}
-          className="bg-green-50 border border-green-200 rounded-3xl p-6 text-center">
+          className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center">
           <div className="text-4xl mb-3">{"\u2713"}</div>
           <p className="text-green-700 font-bold text-lg">이메일 인증 완료!</p>
           <p className="text-green-600 text-sm mt-1">&apos;다음&apos; 버튼을 눌러 진행해주세요.</p>
@@ -811,26 +811,26 @@ function SignupContent() {
                 value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
                 disabled={verifyingCode}
-                className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue text-center text-2xl tracking-[0.5em] font-mono text-black placeholder:text-gray-400 disabled:bg-gray-50"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#0055FF] text-center text-2xl tracking-[0.5em] font-mono text-black placeholder:text-gray-400 disabled:bg-gray-50"
                 placeholder="000000"
                 autoFocus
               />
               {/* 검증 중 로딩 표시 */}
               {verifyingCode && (
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                  <div className="w-5 h-5 border-2 border-skyblue border-t-transparent rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-[#0055FF] border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
             </div>
             {verifyingCode && (
-              <p className="text-xs text-skyblue mt-2 text-center">인증 코드 확인 중...</p>
+              <p className="text-xs text-[#0055FF] mt-2 text-center">인증 코드 확인 중...</p>
             )}
             <p className="text-xs text-gray-400 mt-2 text-center">6자리 입력 시 자동으로 인증됩니다.</p>
           </div>
 
           {/* 재발송 Back-off 상태 표시 */}
           {resendBlocked ? (
-            <div className="bg-red-50 border border-red-200 rounded-3xl p-3 text-center">
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-3 text-center">
               <p className="text-red-600 text-sm font-medium">
                 재발송 횟수를 초과했습니다.
               </p>
@@ -843,7 +843,7 @@ function SignupContent() {
               <span className="text-gray-500">
                 {countdown > 0 ? (
                   <>
-                    남은 시간: <span className="text-skyblue font-bold">
+                    남은 시간: <span className="text-[#0055FF] font-bold">
                       {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")}
                     </span>
                   </>
@@ -858,7 +858,7 @@ function SignupContent() {
                   className={`font-medium ${
                     countdown > 0 || sendingCode
                       ? "text-gray-300 cursor-not-allowed"
-                      : "text-skyblue hover:underline"
+                      : "text-[#0055FF] hover:underline"
                   }`}
                 >
                   {sendingCode ? "발송 중..." : `코드 재발송${resendCount > 0 ? ` (${resendCount}/3)` : ""}`}
@@ -881,7 +881,7 @@ function SignupContent() {
             type={showPassword ? "text" : "password"}
             value={signupData.password}
             onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
-            className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue transition-colors pr-12 text-black placeholder:text-gray-400"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#0055FF] transition-colors pr-12 text-black placeholder:text-gray-400"
             placeholder="8자 이상, 영문/숫자/특수문자 포함"
           />
           <button
@@ -924,8 +924,8 @@ function SignupContent() {
           type={showPassword ? "text" : "password"}
           value={signupData.confirmPassword}
           onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
-          className={`w-full px-4 py-3 border rounded-3xl focus:outline-none transition-colors text-black placeholder:text-gray-400 ${
-            !passwordMatch ? "border-red-400 focus:border-red-400" : "border-gray-300 focus:border-skyblue"
+          className={`w-full px-4 py-3 border rounded-xl focus:outline-none transition-colors text-black placeholder:text-gray-400 ${
+            !passwordMatch ? "border-red-400 focus:border-red-400" : "border-gray-200 focus:border-[#0055FF]"
           }`}
           placeholder="비밀번호를 다시 입력해주세요"
         />
@@ -953,21 +953,21 @@ function SignupContent() {
             setNicknameAvailable(null); // 입력 변경 시 초기화
           }}
           maxLength={20}
-          className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue transition-colors text-black placeholder:text-gray-400"
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#0055FF] transition-colors text-black placeholder:text-gray-400"
           placeholder="2~20자 닉네임 입력"
         />
       </div>
 
       {checkingNickname && (
         <p className="text-sm text-gray-400 flex items-center gap-2">
-          <span className="w-4 h-4 border-2 border-skyblue border-t-transparent rounded-full animate-spin inline-block" />
+          <span className="w-4 h-4 border-2 border-[#0055FF] border-t-transparent rounded-full animate-spin inline-block" />
           확인 중...
         </p>
       )}
 
       {!checkingNickname && nicknameAvailable === true && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="bg-green-50 border border-green-200 rounded-3xl p-3 flex items-center gap-2">
+          className="bg-green-50 border border-green-200 rounded-2xl p-3 flex items-center gap-2">
           <span className="text-green-600 font-bold">{"\u2713"}</span>
           <span className="text-green-700 text-sm font-medium">사용 가능한 닉네임입니다.</span>
         </motion.div>
@@ -975,7 +975,7 @@ function SignupContent() {
 
       {!checkingNickname && nicknameAvailable === false && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="bg-red-50 border border-red-200 rounded-3xl p-3 flex items-center gap-2">
+          className="bg-red-50 border border-red-200 rounded-2xl p-3 flex items-center gap-2">
           <span className="text-red-600 font-bold">{"\u2717"}</span>
           <span className="text-red-700 text-sm font-medium">이미 사용 중인 닉네임입니다.</span>
         </motion.div>
@@ -1020,7 +1020,7 @@ function SignupContent() {
           <div>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-5 py-2 bg-gray-100 text-gray-700 rounded-3xl font-medium hover:bg-gray-200 transition-colors"
+              className="px-5 py-2 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
             >
               {signupData.profileImagePreview ? "사진 변경" : "사진 선택"}
             </button>
@@ -1037,7 +1037,7 @@ function SignupContent() {
       </div>
 
       {/* 정보 요약 */}
-      <div className="bg-gray-50 rounded-3xl p-6 space-y-3 text-sm">
+      <div className="bg-[#F8F9FA] rounded-2xl p-6 space-y-3 text-sm">
         <h3 className="font-bold text-gray-800 text-base mb-2">가입 정보 확인</h3>
         <div className="flex justify-between">
           <span className="text-gray-500">이메일</span>
@@ -1081,25 +1081,25 @@ function SignupContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center p-6">
+    <div className="min-h-screen bg-white flex items-center justify-center p-6">
       {/* Toast */}
       <AnimatePresence>{renderToast()}</AnimatePresence>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-2xl"
+        className="w-full max-w-md mx-auto"
       >
         {/* Header - 단계 번호 없이 심플하게 */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-2">
-            <h1 className="text-2xl font-bold text-gray-800">회원가입</h1>
+            <h1 className="text-2xl font-bold text-[#1A1A1A]">회원가입</h1>
             <span className="text-sm text-gray-500">{signupData.email}</span>
           </div>
           {/* 프로그레스 바만 표시 (단계 번호 인디케이터 제거) */}
           <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
             <motion.div
-              className="h-full bg-skyblue"
+              className="h-full bg-[#0055FF]"
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
               transition={{ duration: 0.3 }}
@@ -1108,7 +1108,7 @@ function SignupContent() {
         </div>
 
         {/* Step Content */}
-        <div className="bg-white rounded-3xl shadow-xl p-8">
+        <div className="bg-[#F8F9FA] rounded-2xl shadow-xl p-8">
           {renderStepContent()}
 
           {/* Navigation Buttons */}
@@ -1116,7 +1116,7 @@ function SignupContent() {
             <button
               onClick={handleBack}
               disabled={submitting}
-              className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-3xl hover:bg-gray-300 transition-all disabled:opacity-50"
+              className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300 transition-all disabled:opacity-50"
             >
               이전
             </button>
@@ -1127,7 +1127,7 @@ function SignupContent() {
                 checkingNickname ||
                 (currentStep === "verify" && !isVerified)
               }
-              className="flex-1 bg-skyblue text-white font-bold py-3 rounded-3xl hover:bg-opacity-90 transition-all disabled:opacity-50"
+              className="flex-1 bg-[#0055FF] text-white font-bold py-3 rounded-xl hover:bg-opacity-90 transition-all disabled:opacity-50"
             >
               {currentStep === "profile"
                 ? submitting ? "가입 처리 중..." : "가입 완료"
@@ -1147,8 +1147,8 @@ export default function SignupPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center">
-          <div className="w-8 h-8 border-4 border-skyblue border-t-transparent rounded-full animate-spin" />
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-[#0055FF] border-t-transparent rounded-full animate-spin" />
         </div>
       }
     >

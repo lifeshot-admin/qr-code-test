@@ -42,11 +42,11 @@ export default function BookingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-6">
+    <div className="min-h-screen bg-white py-12 px-6">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-2xl mx-auto bg-white rounded-3xl shadow-lg p-8"
+        className="max-w-md mx-auto bg-white rounded-2xl shadow-sm p-8"
       >
         <h1 className="text-3xl font-bold text-gray-800 mb-8">예약하기</h1>
         
@@ -62,7 +62,7 @@ export default function BookingPage() {
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
-              className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue"
+              className="w-full px-4 py-3 border border-gray-100 rounded-xl focus:outline-none focus:border-[#0055FF]"
             />
           </div>
 
@@ -77,7 +77,7 @@ export default function BookingPage() {
               onChange={(e) =>
                 setFormData({ ...formData, phone: e.target.value })
               }
-              className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue"
+              className="w-full px-4 py-3 border border-gray-100 rounded-xl focus:outline-none focus:border-[#0055FF]"
             />
           </div>
 
@@ -92,7 +92,7 @@ export default function BookingPage() {
               onChange={(e) =>
                 setFormData({ ...formData, email: e.target.value })
               }
-              className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue"
+              className="w-full px-4 py-3 border border-gray-100 rounded-xl focus:outline-none focus:border-[#0055FF]"
             />
           </div>
 
@@ -108,7 +108,7 @@ export default function BookingPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, date: e.target.value })
                 }
-                className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue"
+                className="w-full px-4 py-3 border border-gray-100 rounded-xl focus:outline-none focus:border-[#0055FF]"
               />
             </div>
 
@@ -123,7 +123,7 @@ export default function BookingPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, time: e.target.value })
                 }
-                className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue"
+                className="w-full px-4 py-3 border border-gray-100 rounded-xl focus:outline-none focus:border-[#0055FF]"
               />
             </div>
           </div>
@@ -140,7 +140,7 @@ export default function BookingPage() {
                   peopleCount: parseInt(e.target.value),
                 })
               }
-              className="w-full px-4 py-3 border border-gray-300 rounded-3xl focus:outline-none focus:border-skyblue"
+              className="w-full px-4 py-3 border border-gray-100 rounded-xl focus:outline-none focus:border-[#0055FF]"
             >
               {[1, 2, 3, 4, 5, 6].map((n) => (
                 <option key={n} value={n}>
@@ -153,7 +153,7 @@ export default function BookingPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full bg-skyblue text-white font-bold py-4 rounded-3xl hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-[#0055FF] text-white font-bold py-4 rounded-xl hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? "예약 중..." : "예약하기"}
           </button>

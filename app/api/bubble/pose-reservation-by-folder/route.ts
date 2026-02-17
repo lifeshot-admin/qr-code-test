@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`${getTimestamp()} 📦 [LOOKUP] 결과: reservation_id=${reservationId}, status=${reservationData.status}, poses=${poseCount}`);
+    console.log(`${getTimestamp()} 📦 [LOOKUP] 결과: reservation_id=${reservationId}, status=${reservationData.status}, reserved_pose_count=${poseCount}`);
 
     return NextResponse.json({
       success: true,

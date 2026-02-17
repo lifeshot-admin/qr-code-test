@@ -43,18 +43,9 @@ function getBaseUrl(): string {
   if (API_BASE_URL) {
     const host = API_BASE_URL.replace(/\/$/, "");
     const versionPath = USE_VERSION_TEST ? "/version-test" : "";
-    const fullPath = `${host}${versionPath}/api/1.1/obj`;
-    
-    if (USE_VERSION_TEST) {
-      console.log(`🧪 Targeting Bubble Test DB: ${fullPath}`);
-    } else {
-      console.log(`🚀 Targeting Bubble Production DB: ${fullPath}`);
-    }
-    return fullPath;
+    return `${host}${versionPath}/api/1.1/obj`;
   }
-  const bubbleUrl = `https://${APP_NAME}.bubbleapps.io/api/1.1/obj`;
-  console.log(`[Bubble API] Base URL: ${bubbleUrl}`);
-  return bubbleUrl;
+  return `https://${APP_NAME}.bubbleapps.io/api/1.1/obj`;
 }
 
 const BASE = getBaseUrl();
@@ -77,6 +68,83 @@ function headers(): HeadersInit {
 }
 
 /**
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * ✅ Authorization 헤더 및 토큰 권한 검증 로그
+ * 
+ * 브라우저(관리자 쿠키)와 앱(Bearer Token)의 권한이 다를 수 있으므로,
+ * 실제 사용되는 토큰 정보를 명확히 로그에 남김.
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ */
+function logAuthStatus(tableName: string): void {
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("🔐 [AUTH CHECK] API 인증 정보:");
+  console.log(`  📋 대상 테이블: ${tableName}`);
+  console.log(`  🔑 토큰 존재: ${API_TOKEN ? "✅ 있음" : "❌ 없음!"}`);
+  console.log(`  🔑 토큰 앞 8자: ${API_TOKEN ? API_TOKEN.slice(0, 8) + "..." : "N/A"}`);
+  console.log(`  🔑 토큰 길이: ${API_TOKEN ? API_TOKEN.length + "자" : "0자"}`);
+  console.log(`  📡 인증 방식: Bearer Token (앱)`);
+  console.log(`  ⚠️ 브라우저는 '관리자 쿠키'로 접근하지만 앱은 이 토큰을 사용!`);
+  console.log(`  ⚠️ Bubble Settings > API에서 이 토큰에 '${tableName}' 테이블 전체 권한이 있는지 확인!`);
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+}
+
+/**
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * ✅ Constraints URL 빌더 (핵심 인코딩 로직)
+ * 
+ * 반드시 encodeURIComponent()를 거쳐야 [ { " 등 특수문자가
+ * %5B %7B %22 등으로 올바르게 인코딩됨.
+ * 
+ * URLSearchParams를 사용하지 않고 명시적으로 encodeURIComponent를 적용하여
+ * 인코딩 과정을 로그에서 100% 추적 가능하게 함.
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ */
+function buildConstraintsUrl(
+  tablePath: string, 
+  constraints: Array<{ key: string; constraint_type: string; value: any }>,
+  callerName: string
+): string {
+  const baseUrl = `${BASE}/${tablePath}`;
+  
+  const encoded = encodeURIComponent(JSON.stringify(constraints));
+  const finalUrl = `${baseUrl}?constraints=${encoded}`;
+  return finalUrl;
+}
+
+
+/**
+ * ✅ Next.js 서버 캐시 완전 비활성화 fetch 래퍼
+ * 
+ * 문제: Next.js App Router는 서버 컴포넌트/라우트 핸들러의 fetch를 자동 캐싱.
+ *       → 브라우저에서는 27번인데 앱에서는 30번이 나오는 등 stale data 이슈 발생.
+ * 
+ * 해결: 모든 Bubble API 호출에 { cache: 'no-store' }를 강제 적용하여
+ *       매 요청마다 반드시 Bubble 서버에서 fresh data를 가져옴.
+ */
+function bubbleFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    cache: 'no-store',
+  });
+}
+
+/**
+ * ✅ Tour 전용: 타임스탬프 캐시버스터 + no-store
+ * 
+ * obj/tour 경로는 캐시 오염이 가장 심한 엔드포인트이므로,
+ * URL에 ?_t=타임스탬프를 붙여 CDN/프록시 캐시까지 완전 우회.
+ */
+function tourFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const separator = url.includes('?') ? '&' : '?';
+  const bustUrl = `${url}${separator}_t=${Date.now()}`;
+  console.log(`🔄 [tourFetch] 캐시버스터 URL: ${bustUrl}`);
+  return fetch(bustUrl, {
+    ...init,
+    cache: 'no-store',
+  });
+}
+
+/**
  * Reservation ID 정리: MANUAL_ 접두사 제거
  * Bubble DB에는 순수 ID만 저장되므로, 클라이언트에서 생성한 접두사를 제거
  * 예: "MANUAL_1234567890" → "1234567890"
@@ -93,16 +161,8 @@ function sanitizeReservationId(id: string): string {
 /**
  * API 호출 디버깅용: 토큰 첫 5자와 전체 URL 로그 출력
  */
-function logApiCall(method: string, url: string, hasBody: boolean = false): void {
-  const tokenPreview = API_TOKEN ? API_TOKEN.slice(0, 5) : "(없음)";
-  const dbType = USE_VERSION_TEST ? "Test DB" : "Production DB";
-  console.log(`\n[Bubble API] ${method} Request`);
-  console.log(`📍 Targeting Bubble ${dbType}: ${url}`);
-  console.log(`🔑 Authorization: Bearer ${tokenPreview}***`);
-  if (hasBody) {
-    console.log(`📦 Request includes body`);
-  }
-  console.log('---');
+function logApiCall(_method: string, _url: string, _hasBody: boolean = false): void {
+  // 로그 제거됨 — 에러 시에만 URL 출력하도록 개별 호출부에서 처리
 }
 
 /** pose_reservation 테이블: 예약 정보 (최신 스키마 2026.02.11) */
@@ -183,7 +243,7 @@ export async function getPoseReservation(
   try {
     const url = `${BASE}/pose_reservation/${cleanId}`;
     logApiCall("GET", url);
-    const res = await fetch(url, {
+    const res = await bubbleFetch(url, {
       method: "GET",
       headers: headers(),
     });
@@ -234,7 +294,7 @@ export async function updateReservationStatus(
   try {
     const url = `${BASE}/pose_reservation/${cleanId}`;
     logApiCall("PATCH", url, true);
-    const res = await fetch(url, {
+    const res = await bubbleFetch(url, {
       method: "PATCH",
       headers: headers(),
       body: JSON.stringify({ status }),
@@ -334,7 +394,7 @@ export async function updateAuthPhoto(payload: {
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
     logApiCall("PATCH", url, true);
-    const res = await fetch(url, {
+    const res = await bubbleFetch(url, {
       method: "PATCH",
       headers: headers(),
       body: JSON.stringify(body),
@@ -400,18 +460,13 @@ export async function getReservedPosesByReservation(
   const hasBase = !!API_BASE_URL || !!APP_NAME;
   if (!hasBase || !API_TOKEN) return [];
   try {
-    const constraints = encodeURIComponent(
-      JSON.stringify([
-        {
-          key: "pose_reservation_id",
-          constraint_type: "equals",
-          value: cleanId,
-        },
-      ])
-    );
-    const url = `${BASE}/reserved_pose?constraints=${constraints}`;  // ✅ 소문자 통일
+    const constraints = [
+      { key: "pose_reservation_id", constraint_type: "equals", value: cleanId },
+    ];
+    // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+    const url = buildConstraintsUrl("reserved_pose", constraints, "getReservedPosesByReservation");
     logApiCall("GET", url);
-    const res = await fetch(url, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
     if (!res.ok) return [];
     const json: BubbleListResponse<ReservedPose> = await res.json();
     return json?.response?.results ?? [];
@@ -432,7 +487,7 @@ export async function getSpotPose(spotPoseId: string): Promise<SpotPose | null> 
   try {
     const url = `${BASE}/spot_pose/${spotPoseId}`;  // ✅ 소문자 통일
     logApiCall("GET", url);
-    const res = await fetch(url, {
+    const res = await bubbleFetch(url, {
       method: "GET",
       headers: headers(),
     });
@@ -496,7 +551,7 @@ export async function getPoseCategories(): Promise<PoseCategory[]> {
   try {
     const url = `${BASE}/pose_category`;
     logApiCall("GET", url);
-    const res = await fetch(url, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
     if (!res.ok) return [];
     const json: BubbleListResponse<PoseCategory> = await res.json();
     return json?.response?.results ?? [];
@@ -517,7 +572,7 @@ export async function getSpotPoses(): Promise<SpotPose[]> {
   try {
     const url = `${BASE}/spot_pose`;  // ✅ 소문자 통일
     logApiCall("GET", url);
-    const res = await fetch(url, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
     if (!res.ok) return [];
     const json: BubbleListResponse<SpotPose> = await res.json();
     return json?.response?.results ?? [];
@@ -705,13 +760,11 @@ export async function searchCoupon(
       { key: "phone", constraint_type: "text contains", value: cleanedPhone },
     ];
 
-    const url = `${BASE}/excel`;
-    const params = new URLSearchParams();
-    params.append("constraints", JSON.stringify(constraints3));
-    const fullUrl = `${url}?${params.toString()}`;
+    // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+    const fullUrl = buildConstraintsUrl("excel", constraints3, "searchCoupon/전략3");
     logApiCall("GET", fullUrl);
 
-    const res = await fetch(fullUrl, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(fullUrl, { method: "GET", headers: headers() });
     if (res.ok) {
       const json: BubbleListResponse<ExcelCoupon> = await res.json();
       const results = json?.response?.results ?? [];
@@ -738,7 +791,7 @@ export async function searchCoupon(
 
     const url = `${BASE}/excel`;
     logApiCall("GET", url);
-    const res = await fetch(url, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
     if (!res.ok) {
       console.error(`❌ [전략 4] HTTP ${res.status}`);
       return null;
@@ -855,15 +908,11 @@ async function fetchCouponWithConstraints(
   constraints: Array<{ key: string; constraint_type: string; value: string }>,
   strategyLabel: string
 ): Promise<ExcelCoupon | null> {
-  const url = `${BASE}/excel`;
-  const params = new URLSearchParams();
-  params.append("constraints", JSON.stringify(constraints));
-
-  const fullUrl = `${url}?${params.toString()}`;
-  console.log(`  📤 Constraints: ${JSON.stringify(constraints)}`);
+  // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+  const fullUrl = buildConstraintsUrl("excel", constraints, `fetchCouponWithConstraints/${strategyLabel}`);
   logApiCall("GET", fullUrl);
 
-  const res = await fetch(fullUrl, { method: "GET", headers: headers() });
+  const res = await bubbleFetch(fullUrl, { method: "GET", headers: headers() });
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
     console.error(`  ❌ [${strategyLabel}] HTTP ${res.status}: ${errText}`);
@@ -892,163 +941,117 @@ async function fetchCouponWithConstraints(
 }
 
 /**
- * tour_Id로 투어 조회
- * GET /api/1.1/obj/tour with constraints
- * ✅ 다중 전략: constraints 실패 시 전체 로드 후 find
+ * [DEPRECATED] 기존 다중 전략 함수 → getTourByTourId로 대체
+ * 하위 호환성을 위해 getTourByTourId를 호출하도록 위임
  */
 export async function getTourById(tourId: number): Promise<Tour | null> {
+  return getTourByTourId(tourId);
+}
+
+/**
+ * tour_Id(자바 백엔드 ID)로 투어 조회
+ * 
+ * ✅ constraints 기반 단일 쿼리:
+ *   GET /api/1.1/obj/tour?constraints=[{"key":"tour_Id","constraint_type":"equals","value": tourId}]
+ * 
+ * Fallback: constraints 실패 시 전체 로드 후 find
+ */
+export async function getTourByTourId(tourId: number): Promise<Tour | null> {
   const hasBase = !!API_BASE_URL || !!APP_NAME;
   if (!hasBase || !API_TOKEN) return null;
   
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("🔍 [getTourById] 다중 전략 검색 시작");
-  console.log(`  🎯 Target tour_Id: ${tourId} (${typeof tourId})`);
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  
-  // 🎯 전략 1: 필드명 소문자 + 숫자 값 (tour_Id: 30)
+  // constraints 기반 검색 (tour_Id 필드, 숫자 값)
   try {
-    console.log("📍 [Strategy 1] key: 'tour_Id' (소문자), value: 30 (숫자)");
-    const constraints1 = [
+    console.log(`📍 [Constraints] key: 'tour_Id', value: ${tourId} (숫자)`);
+    const constraints = [
       { key: "tour_Id", constraint_type: "equals", value: tourId },
     ];
-    const result1 = await tryFetchWithConstraints(constraints1, "Strategy 1");
-    if (result1) {
-      console.log("✅ [Strategy 1] SUCCESS - tour_Id (소문자) + 숫자");
-      return result1;
+    const result = await tryFetchWithConstraints(constraints, "Constraints");
+    if (result) {
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log(`✅ [Constraints] SUCCESS`);
+      console.log(`  🎯 요청한 tour_Id: ${tourId}`);
+      console.log(`  📌 응답 tour_Id (RAW): ${result.tour_Id} (${typeof result.tour_Id})`);
+      console.log(`  📌 응답 tour_name: ${result.tour_name}`);
+      console.log(`  📌 응답 _id: ${result._id}`);
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      return result;
     }
   } catch (e) {
-    console.error("❌ [Strategy 1] Failed:", e);
+    console.error("❌ [Constraints] Failed:", e);
   }
   
-  // 🎯 전략 2: 필드명 대문자 I + 숫자 값 (Tour_Id: 30)
-  try {
-    console.log("📍 [Strategy 2] key: 'Tour_Id' (대문자 T, I), value: 30 (숫자)");
-    const constraints2 = [
-      { key: "Tour_Id", constraint_type: "equals", value: tourId },
-    ];
-    const result2 = await tryFetchWithConstraints(constraints2, "Strategy 2");
-    if (result2) {
-      console.log("✅ [Strategy 2] SUCCESS - Tour_Id (대문자 T, I) + 숫자");
-      return result2;
-    }
-  } catch (e) {
-    console.error("❌ [Strategy 2] Failed:", e);
-  }
-  
-  // 🎯 전략 3: 필드명 소문자 + 문자열 값 (tour_Id: "30")
-  try {
-    console.log("📍 [Strategy 3] key: 'tour_Id' (소문자), value: '30' (문자열)");
-    const constraints3 = [
-      { key: "tour_Id", constraint_type: "equals", value: String(tourId) },
-    ];
-    const result3 = await tryFetchWithConstraints(constraints3, "Strategy 3");
-    if (result3) {
-      console.log("✅ [Strategy 3] SUCCESS - tour_Id (소문자) + 문자열");
-      return result3;
-    }
-  } catch (e) {
-    console.error("❌ [Strategy 3] Failed:", e);
-  }
-  
-  // 🎯 전략 4: 필드명 대문자 ID + 숫자 값 (Tour_ID: 30)
-  try {
-    console.log("📍 [Strategy 4] key: 'Tour_ID' (대문자 T, ID), value: 30 (숫자)");
-    const constraints4 = [
-      { key: "Tour_ID", constraint_type: "equals", value: tourId },
-    ];
-    const result4 = await tryFetchWithConstraints(constraints4, "Strategy 4");
-    if (result4) {
-      console.log("✅ [Strategy 4] SUCCESS - Tour_ID (대문자 T, ID) + 숫자");
-      return result4;
-    }
-  } catch (e) {
-    console.error("❌ [Strategy 4] Failed:", e);
-  }
-  
-  // 🎯 전략 5: constraints 없이 전체 로드 후 find
+  // 🎯 Fallback: 전체 로드 후 find (constraints 실패 시 안전망)
   try {
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("📍 [Strategy 5] 전체 데이터 로드 후 find (constraints 없음)");
-    console.log("  ⚠️ Constraints 기능이 막혀있을 가능성 테스트");
+    console.log("📍 [Fallback] 전체 데이터 로드 후 find");
+    console.log(`  ⚠️ Constraints 실패 → 전체 로드 후 tour_Id=${tourId} 탐색`);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
     const url = `${BASE}/tour`;
     logApiCall("GET", url);
     
-    const res = await fetch(url, {
+    // ✅ tourFetch: cache: 'no-store' + 타임스탬프 캐시버스터
+    const res = await tourFetch(url, {
       method: "GET",
       headers: headers(),
     });
     
     if (!res.ok) {
       const errorText = await res.text();
-      console.error(`❌ [Strategy 5] HTTP ${res.status}: ${errorText}`);
+      console.error(`❌ [Fallback] HTTP ${res.status}: ${errorText}`);
       return null;
     }
     
     const json: BubbleListResponse<Tour> = await res.json();
     const allResults = json?.response?.results ?? [];
     
-    console.log(`📦 [Strategy 5] 전체 로드: ${allResults.length}개`);
+    console.log(`📦 [Fallback] 전체 로드: ${allResults.length}개`);
     
     if (allResults.length > 0) {
-      console.log("  🔍 [Strategy 5] 첫 3개 데이터 샘플:");
+      // ✅ [RAW LOG] API 응답 원본 tour_Id 가공 없이 출력
+      console.log("  🔍 [Fallback] 첫 3개 데이터 샘플 (RAW tour_Id):");
       allResults.slice(0, 3).forEach((tour, idx) => {
-        console.log(`    [${idx}] tour_Id: ${tour.tour_Id} (${typeof tour.tour_Id}), name: ${tour.tour_name}`);
+        console.log(`    [${idx}] tour_Id (RAW): ${tour.tour_Id} (${typeof tour.tour_Id}), name: ${tour.tour_name}`);
       });
     }
     
-    // 🎯 다양한 필드명으로 찾기 시도
-    const candidates = [
-      allResults.find(t => t.tour_Id === tourId),
-      allResults.find(t => (t as any).Tour_Id === tourId),
-      allResults.find(t => String(t.tour_Id) === String(tourId)),
-      allResults.find(t => String((t as any).Tour_Id) === String(tourId)),
-    ].filter(Boolean);
+    // tour_Id 기준 매칭 (숫자 / 문자열 모두 대응)
+    const matchedTours = allResults.filter(t => 
+      t.tour_Id === tourId || 
+      String(t.tour_Id) === String(tourId)
+    );
     
-    if (candidates.length > 0) {
-      const found = candidates[0];
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("✅✅✅ [Strategy 5] SUCCESS - 전체 로드 후 find 성공!");
-      console.log(`  📌 Found: tour_Id=${found?.tour_Id}, name=${found?.tour_name}`);
-      console.log("  ⚠️ 이는 Bubble constraints 기능에 문제가 있다는 증거!");
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      
-      // 🎯 중복 데이터 처리: Modified Date 기준 최신 선택
-      const matchedTours = allResults.filter(t => 
-        t.tour_Id === tourId || 
-        (t as any).Tour_Id === tourId ||
-        String(t.tour_Id) === String(tourId) ||
-        String((t as any).Tour_Id) === String(tourId)
-      );
-      
-      if (matchedTours.length > 1) {
-        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        console.log(`⚠️ [중복 데이터 발견] tour_Id=${tourId}인 데이터 ${matchedTours.length}개 존재`);
-        matchedTours.forEach((tour, idx) => {
-          console.log(`  [${idx}] Modified Date: ${tour["Modified Date"]}, Created: ${tour["Created Date"]}`);
-        });
-        
-        // Modified Date 기준 최신 선택
-        const sortedByModified = [...matchedTours].sort((a, b) => {
-          const dateA = new Date(a["Modified Date"] || a["Created Date"] || 0).getTime();
-          const dateB = new Date(b["Modified Date"] || b["Created Date"] || 0).getTime();
-          return dateB - dateA; // 내림차순 (최신이 먼저)
-        });
-        
-        const latest = sortedByModified[0];
-        console.log(`  ✅ 최신 데이터 선택: Modified Date=${latest["Modified Date"]}`);
-        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        return latest;
-      }
-      
-      return found || null;  // ✅ undefined → null 변환
+    if (matchedTours.length === 0) {
+      console.error(`❌ [Fallback] 전체 데이터에서도 tour_Id=${tourId} 찾지 못함`);
+      return null;
     }
     
-    console.error("❌ [Strategy 5] 전체 데이터에서도 찾지 못함");
-    return null;
+    // 중복 데이터 처리: Modified Date 기준 최신 선택
+    if (matchedTours.length > 1) {
+      console.log(`⚠️ [중복 데이터 발견] tour_Id=${tourId}인 데이터 ${matchedTours.length}개 존재`);
+      const sortedByModified = [...matchedTours].sort((a, b) => {
+        const dateA = new Date(a["Modified Date"] || a["Created Date"] || 0).getTime();
+        const dateB = new Date(b["Modified Date"] || b["Created Date"] || 0).getTime();
+        return dateB - dateA;
+      });
+      const latest = sortedByModified[0];
+      console.log(`  ✅ 최신 데이터 선택: Modified Date=${latest["Modified Date"]}`);
+      return latest;
+    }
+    
+    const found = matchedTours[0];
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`✅ [Fallback] SUCCESS`);
+    console.log(`  🎯 요청한 tour_Id: ${tourId}`);
+    console.log(`  📌 응답 tour_Id (RAW): ${found.tour_Id} (${typeof found.tour_Id})`);
+    console.log(`  📌 응답 tour_name: ${found.tour_name}`);
+    console.log(`  📌 응답 _id: ${found._id}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    return found;
   } catch (e) {
-    console.error("❌ [Strategy 5] Exception:", e);
+    console.error("❌ [Fallback] Exception:", e);
     return null;
   }
 }
@@ -1060,18 +1063,15 @@ async function tryFetchWithConstraints(
   constraints: Array<{ key: string; constraint_type: string; value: any }>,
   strategyName: string
 ): Promise<Tour | null> {
-  const url = `${BASE}/tour`;
-  const params = new URLSearchParams();
-  params.append("constraints", JSON.stringify(constraints));
+  // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+  const fullUrl = buildConstraintsUrl("tour", constraints, `tryFetchWithConstraints/${strategyName}`);
   
-  const fullUrl = `${url}?${params.toString()}`;
-  
-  console.log(`  📤 [${strategyName}] URL: ${fullUrl}`);
-  console.log(`  📦 [${strategyName}] Constraints: ${JSON.stringify(constraints)}`);
-  
+  // ✅ 토큰 권한 검증 로그
+  logAuthStatus("tour");
   logApiCall("GET", fullUrl);
   
-  const res = await fetch(fullUrl, {
+  // ✅ tourFetch: cache: 'no-store' + 타임스탬프 캐시버스터
+  const res = await tourFetch(fullUrl, {
     method: "GET",
     headers: headers(),
   });
@@ -1086,6 +1086,13 @@ async function tryFetchWithConstraints(
   const results = json?.response?.results ?? [];
   
   console.log(`  📥 [${strategyName}] 결과: ${results.length}개`);
+  
+  // ✅ [RAW LOG] API 응답 원본 tour_Id 가공 없이 출력
+  if (results.length > 0) {
+    results.forEach((item, idx) => {
+      console.log(`  📌 [${strategyName}] results[${idx}].tour_Id (RAW) = ${item.tour_Id} (${typeof item.tour_Id})`);
+    });
+  }
   
   if (results.length === 0) {
     return null;
@@ -1119,22 +1126,14 @@ export async function getSpotsByTourId(tourId: number): Promise<Spot[]> {
       { key: "tour_Id", constraint_type: "equals", value: tourId },
     ];
     
-    const url = `${BASE}/spot`;  // ✅ 소문자 통일
-    const params = new URLSearchParams();
-    params.append("constraints", JSON.stringify(constraints));
+    // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+    const fullUrl = buildConstraintsUrl("spot", constraints, "getSpotsByTourId");
     
-    const fullUrl = `${url}?${params.toString()}`;
-    
-    // 🔍 형님 확인용 로깅
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("🎯 [getSpotsByTourId] Bubble API 호출");
-    console.log(`  📍 전체 URL: ${fullUrl}`);
-    console.log(`  📦 Constraints: ${JSON.stringify(constraints)}`);
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    
+    // ✅ 토큰 권한 검증 로그
+    logAuthStatus("spot");
     logApiCall("GET", fullUrl);
     
-    const res = await fetch(fullUrl, {
+    const res = await bubbleFetch(fullUrl, {
       method: "GET",
       headers: headers(),
     });
@@ -1190,25 +1189,31 @@ export async function getSpotPosesBySpotId(
       });
     }
     
-    const url = `${BASE}/spot_pose`;  // ✅ 소문자 통일
-    const params = new URLSearchParams();
-    params.append("constraints", JSON.stringify(constraints));
+    // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+    const fullUrl = buildConstraintsUrl("spot_pose", constraints, "getSpotPosesBySpotId");
     
-    const fullUrl = `${url}?${params.toString()}`;
+    logAuthStatus("spot_pose");
     logApiCall("GET", fullUrl);
     
-    const res = await fetch(fullUrl, {
+    const res = await bubbleFetch(fullUrl, {
       method: "GET",
       headers: headers(),
     });
     
     if (!res.ok) {
-      console.error("getSpotPosesBySpotId failed:", res.status);
+      const errorText = await res.text();
+      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.error(`❌ [getSpotPosesBySpotId] 실패! HTTP ${res.status}`);
+      console.error(`  Response: ${errorText.slice(0, 300)}`);
+      console.error(`  URL: ${fullUrl}`);
+      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       return [];
     }
     
     const json: BubbleListResponse<SpotPose> = await res.json();
-    return json?.response?.results ?? [];
+    const results = json?.response?.results ?? [];
+    console.log(`✅ [getSpotPosesBySpotId] 결과: ${results.length}개`);
+    return results;
   } catch (e) {
     console.error("getSpotPosesBySpotId", e);
     return [];
@@ -1228,25 +1233,27 @@ export async function getSpotPosesByTourId(tourId: number): Promise<SpotPose[]> 
       { key: "tour_Id", constraint_type: "equals", value: tourId },
     ];
     
-    const url = `${BASE}/spot_pose`;  // ✅ 소문자 통일
-    const params = new URLSearchParams();
-    params.append("constraints", JSON.stringify(constraints));
+    // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+    const fullUrl = buildConstraintsUrl("spot_pose", constraints, "getSpotPosesByTourId");
     
-    const fullUrl = `${url}?${params.toString()}`;
+    logAuthStatus("spot_pose");
     logApiCall("GET", fullUrl);
     
-    const res = await fetch(fullUrl, {
+    const res = await bubbleFetch(fullUrl, {
       method: "GET",
       headers: headers(),
     });
     
     if (!res.ok) {
-      console.error("getSpotPosesByTourId failed:", res.status);
+      const errorText = await res.text();
+      console.error(`❌ [getSpotPosesByTourId] 실패! HTTP ${res.status}: ${errorText.slice(0, 300)}`);
       return [];
     }
     
     const json: BubbleListResponse<SpotPose> = await res.json();
-    return json?.response?.results ?? [];
+    const results = json?.response?.results ?? [];
+    console.log(`✅ [getSpotPosesByTourId] 결과: ${results.length}개`);
+    return results;
   } catch (e) {
     console.error("getSpotPosesByTourId", e);
     return [];
@@ -1291,29 +1298,31 @@ export async function getSpotPosesByFilters(
       });
     }
     
-    const url = `${BASE}/spot_pose`;  // ✅ 소문자 통일
-    const params = new URLSearchParams();
-    params.append("constraints", JSON.stringify(constraints));
+    // ✅ buildConstraintsUrl: encodeURIComponent 명시 적용
+    const fullUrl = buildConstraintsUrl("spot_pose", constraints, "getSpotPosesByFilters");
     
-    const fullUrl = `${url}?${params.toString()}`;
-    console.log("📍 [Bubble API] Final URL:", fullUrl);
-    console.log("📍 [Bubble API] Constraints:", JSON.stringify(constraints));
+    logAuthStatus("spot_pose");
     logApiCall("GET", fullUrl);
     
-    const res = await fetch(fullUrl, {
+    const res = await bubbleFetch(fullUrl, {
       method: "GET",
       headers: headers(),
     });
     
     if (!res.ok) {
-      console.error("getSpotPosesByFilters failed:", res.status);
+      const errorText = await res.text();
+      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.error(`❌ [getSpotPosesByFilters] 실패! HTTP ${res.status}`);
+      console.error(`  Response: ${errorText.slice(0, 300)}`);
+      console.error(`  URL: ${fullUrl}`);
+      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       return [];
     }
     
     const json: BubbleListResponse<SpotPose> = await res.json();
     const results = json?.response?.results ?? [];
     
-    console.log("✅ [Bubble API] getSpotPosesByFilters 결과:", results.length, "개");
+    console.log(`✅ [getSpotPosesByFilters] 결과: ${results.length}개`);
     
     return results;
   } catch (e) {
@@ -1334,9 +1343,9 @@ export async function getPersonasByTourAndSpot(
     // 🚨 [CRITICAL CHECK] 전송할 tourId 값 확인
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("🚨 [CRITICAL CHECK] getPersonasByTourAndSpot 호출:");
-    console.log("  ✅ Sending tourId:", tourId);
-    console.log("  ✅ Sending spotId:", spotId);
-    console.log("  ⚠️ tourId가 11093이면 잘못됨! 30처럼 작은 숫자여야 함!");
+    console.log(`  ✅ Sending tourId: ${tourId}`);
+    console.log(`  ✅ Sending spotId: ${spotId}`);
+    console.log(`  ⚠️ tourId가 11093이면 잘못됨! 27처럼 작은 숫자여야 함!`);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
     const allPoses = await getSpotPosesByFilters(tourId, spotId);
@@ -1395,7 +1404,7 @@ async function fetchBubbleUser(userId: string): Promise<{ nickname: string; imag
   if (!userId) return fallback;
   try {
     const url = `${BASE}/user/${userId}`;
-    const res = await fetch(url, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
     if (!res.ok) {
       console.warn(`  [fetchBubbleUser] HTTP ${res.status} for userId=${userId}`);
       return fallback;
@@ -1405,7 +1414,6 @@ async function fetchBubbleUser(userId: string): Promise<{ nickname: string; imag
     if (!user) return fallback;
 
     const keys = Object.keys(user);
-    console.log(`  👤 [fetchBubbleUser] userId=${userId}, keys:`, keys.join(", "));
 
     // ─ 닉네임 필드 탐색 (우선순위: 정확 → 포함)
     const nickKey =
@@ -1416,7 +1424,6 @@ async function fetchBubbleUser(userId: string): Promise<{ nickname: string; imag
       "";
 
     // ─ 프로필 이미지 필드 탐색 (우선순위: 정확 → 포함)
-    // "(new ( image ))" — 괄호·공백 포함 가능
     const imgKey =
       keys.find(k => k === "(new)image") ||
       keys.find(k => k.toLowerCase().replace(/[\s()]/g, "").includes("newimage")) ||
@@ -1427,8 +1434,6 @@ async function fetchBubbleUser(userId: string): Promise<{ nickname: string; imag
 
     const nickname = user[nickKey] || fallback.nickname;
     const image = user[imgKey] || fallback.image;
-
-    console.log(`  👤 [fetchBubbleUser] 결과: nickKey="${nickKey}"="${nickname}", imgKey="${imgKey}"="${image ? "(있음)" : "(없음)"}"`);
 
     return { nickname, image };
   } catch (e) {
@@ -1461,7 +1466,7 @@ export async function fetchReviews(): Promise<BubbleReview[]> {
     const url = `${BASE}/review?${sortParams.toString()}`;
     logApiCall("GET", url);
 
-    const res = await fetch(url, { method: "GET", headers: headers() });
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
     if (!res.ok) {
       console.error(`[fetchReviews] HTTP ${res.status}`);
       return [];
@@ -1486,7 +1491,6 @@ export async function fetchReviews(): Promise<BubbleReview[]> {
           k.toLowerCase() === "review" || k.toLowerCase().includes("review")
         );
         if (reviewKey && reviewKey !== "review") {
-          console.log(`  🔄 [fetchReviews] review 필드명 보정: "${reviewKey}" → "review"`);
           item["review"] = item[reviewKey];
         }
       }
@@ -1497,7 +1501,6 @@ export async function fetchReviews(): Promise<BubbleReview[]> {
           k.toLowerCase() === "title" || k.toLowerCase().includes("title")
         );
         if (titleKey && titleKey !== "title") {
-          console.log(`  🔄 [fetchReviews] title 필드명 보정: "${titleKey}" → "title"`);
           item["title"] = item[titleKey];
         }
       }
@@ -1511,28 +1514,6 @@ export async function fetchReviews(): Promise<BubbleReview[]> {
           item["score"] = item[scoreKey];
         }
       }
-
-      // 디버깅 로그 (각 리뷰의 실제 내용 확인)
-      console.log("Review Content Check:", {
-        _id: item._id,
-        review: item.review,
-        reviewType: typeof item.review,
-        reviewLength: item.review?.length ?? 0,
-        title: item.title,
-        score: item.score,
-        hasImage: !!item.image,
-      });
-    }
-
-    // ─── 첫 번째 아이템 전체 덤프 (디버깅용) ───
-    if (results.length > 0) {
-      const first = results[0];
-      const dump: Record<string, any> = {};
-      for (const k of Object.keys(first)) {
-        const val = first[k];
-        dump[k] = typeof val === "string" && val.length > 80 ? val.slice(0, 80) + "…" : val;
-      }
-      console.log("  📦 [fetchReviews] 첫 번째 리뷰 전체:", JSON.stringify(dump, null, 2));
     }
 
     // User 조인: 고유 userId 수집 → 일괄 조회 → 매핑
@@ -1542,8 +1523,6 @@ export async function fetchReviews(): Promise<BubbleReview[]> {
         return typeof uid === "string" ? uid : (uid as any)?._id || "";
       }).filter(Boolean)
     )];
-
-    console.log(`  👥 유저 조인 대상: ${userIds.length}명`);
 
     const userMap = new Map<string, { nickname: string; image: string }>();
     // 병렬 조회 (최대 10명)
@@ -1568,5 +1547,306 @@ export async function fetchReviews(): Promise<BubbleReview[]> {
   } catch (e) {
     console.error("[fetchReviews] Exception:", e);
     return [];
+  }
+}
+
+// ═══════════════════════════════════════════
+// ▼ 관리자 CRUD — 이벤트 (reward_event 테이블)
+// ═══════════════════════════════════════════
+
+export type BubbleRewardEvent = {
+  _id: string;
+  title: string;
+  subtitle?: string;
+  credit_type: "PHOTO" | "AI" | "RETOUCH";
+  credit_amount: number;
+  image?: string;
+  badge?: string;
+  active: boolean;
+  mission_type: "CLICK" | "PARTNER";
+  gift_id?: number;
+  target_url?: string;
+  main_image?: string;
+  benefit_desc?: string;
+  content_detail?: string;
+  condition_desc?: string;
+  button_text?: string;
+  sort_order?: number;
+  "Created Date"?: string;
+  "Modified Date"?: string;
+  [key: string]: any;
+};
+
+export async function fetchEvents(): Promise<BubbleRewardEvent[]> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) {
+    console.warn("[fetchEvents] Bubble API 설정 없음");
+    return [];
+  }
+  try {
+    const params = new URLSearchParams();
+    params.append("sort_field", "sort_order");
+    params.append("descending", "false");
+    params.append("limit", "50");
+
+    const url = `${BASE}/reward_event?${params.toString()}`;
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
+    if (!res.ok) {
+      console.error(`[fetchEvents] HTTP ${res.status}`);
+      return [];
+    }
+    const json: BubbleListResponse<BubbleRewardEvent> = await res.json();
+    return json?.response?.results ?? [];
+  } catch (e) {
+    console.error("[fetchEvents] Exception:", e);
+    return [];
+  }
+}
+
+export async function createEvent(data: Partial<BubbleRewardEvent>): Promise<BubbleRewardEvent | null> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return null;
+  try {
+    const url = `${BASE}/reward_event`;
+    const res = await bubbleFetch(url, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error(`[createEvent] HTTP ${res.status}:`, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    return json?.id ? { _id: json.id, ...data } as BubbleRewardEvent : null;
+  } catch (e) {
+    console.error("[createEvent] Exception:", e);
+    return null;
+  }
+}
+
+export async function updateEvent(id: string, data: Partial<BubbleRewardEvent>): Promise<boolean> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return false;
+  try {
+    const url = `${BASE}/reward_event/${id}`;
+    const res = await bubbleFetch(url, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error(`[updateEvent] HTTP ${res.status}:`, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[updateEvent] Exception:", e);
+    return false;
+  }
+}
+
+export async function deleteEvent(id: string): Promise<boolean> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return false;
+  try {
+    const url = `${BASE}/reward_event/${id}`;
+    const res = await bubbleFetch(url, { method: "DELETE", headers: headers() });
+    if (!res.ok) {
+      console.error(`[deleteEvent] HTTP ${res.status}:`, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[deleteEvent] Exception:", e);
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════
+// ▼ 관리자 CRUD — 홈 배너 (home_banner 테이블)
+// ═══════════════════════════════════════════
+
+export type BubbleHomeBanner = {
+  _id: string;
+  title: string;
+  subtitle?: string;
+  image: string;
+  link_url?: string;
+  sort_order: number;
+  active: boolean;
+  "Created Date"?: string;
+  "Modified Date"?: string;
+  [key: string]: any;
+};
+
+export async function fetchBanners(): Promise<BubbleHomeBanner[]> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) {
+    console.warn("[fetchBanners] Bubble API 설정 없음");
+    return [];
+  }
+  try {
+    const params = new URLSearchParams();
+    params.append("sort_field", "sort_order");
+    params.append("descending", "false");
+    params.append("limit", "20");
+
+    const url = `${BASE}/home_banner?${params.toString()}`;
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
+    if (!res.ok) {
+      console.error(`[fetchBanners] HTTP ${res.status}`);
+      return [];
+    }
+    const json: BubbleListResponse<BubbleHomeBanner> = await res.json();
+    return json?.response?.results ?? [];
+  } catch (e) {
+    console.error("[fetchBanners] Exception:", e);
+    return [];
+  }
+}
+
+export async function createBanner(data: Partial<BubbleHomeBanner>): Promise<BubbleHomeBanner | null> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return null;
+  try {
+    const url = `${BASE}/home_banner`;
+    const res = await bubbleFetch(url, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error(`[createBanner] HTTP ${res.status}:`, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    return json?.id ? { _id: json.id, ...data } as BubbleHomeBanner : null;
+  } catch (e) {
+    console.error("[createBanner] Exception:", e);
+    return null;
+  }
+}
+
+export async function updateBanner(id: string, data: Partial<BubbleHomeBanner>): Promise<boolean> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return false;
+  try {
+    const url = `${BASE}/home_banner/${id}`;
+    const res = await bubbleFetch(url, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error(`[updateBanner] HTTP ${res.status}:`, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[updateBanner] Exception:", e);
+    return false;
+  }
+}
+
+export async function deleteBanner(id: string): Promise<boolean> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return false;
+  try {
+    const url = `${BASE}/home_banner/${id}`;
+    const res = await bubbleFetch(url, { method: "DELETE", headers: headers() });
+    if (!res.ok) {
+      console.error(`[deleteBanner] HTTP ${res.status}:`, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[deleteBanner] Exception:", e);
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════
+// ▼ 관리자 — 리뷰 관리 (review 테이블 R/U/D)
+// ═══════════════════════════════════════════
+
+export async function fetchReviewsAdmin(
+  options: { limit?: number; offset?: number; sort?: string; descending?: boolean } = {}
+): Promise<{ results: BubbleReview[]; count: number }> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) {
+    return { results: [], count: 0 };
+  }
+  try {
+    const params = new URLSearchParams();
+    params.append("sort_field", options.sort || "Modified Date");
+    params.append("descending", String(options.descending ?? true));
+    params.append("limit", String(options.limit || 50));
+    if (options.offset) params.append("cursor", String(options.offset));
+
+    const url = `${BASE}/review?${params.toString()}`;
+    const res = await bubbleFetch(url, { method: "GET", headers: headers() });
+    if (!res.ok) {
+      console.error(`[fetchReviewsAdmin] HTTP ${res.status}`);
+      return { results: [], count: 0 };
+    }
+    const json: BubbleListResponse<BubbleReview> = await res.json();
+    const results = json?.response?.results ?? [];
+    const count = json?.response?.count ?? results.length;
+
+    // User 조인
+    const userIds = [...new Set(
+      results.map(r => {
+        const uid = r.user || r["Created By"] || "";
+        return typeof uid === "string" ? uid : (uid as any)?._id || "";
+      }).filter(Boolean)
+    )];
+    const userMap = new Map<string, { nickname: string; image: string }>();
+    await Promise.all(
+      userIds.slice(0, 20).map(async (uid) => {
+        const userData = await fetchBubbleUser(uid);
+        userMap.set(uid, userData);
+      })
+    );
+    for (const review of results) {
+      const uid = typeof review.user === "string"
+        ? review.user
+        : (review.user as any)?._id || review["Created By"] || "";
+      const userData = userMap.get(uid) || { nickname: "치이즈 고객님", image: "" };
+      review._user_nickname = userData.nickname;
+      review._user_image = userData.image;
+    }
+
+    return { results, count };
+  } catch (e) {
+    console.error("[fetchReviewsAdmin] Exception:", e);
+    return { results: [], count: 0 };
+  }
+}
+
+export async function updateReview(id: string, data: Partial<BubbleReview>): Promise<boolean> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return false;
+  try {
+    const url = `${BASE}/review/${id}`;
+    const res = await bubbleFetch(url, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error(`[updateReview] HTTP ${res.status}:`, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[updateReview] Exception:", e);
+    return false;
+  }
+}
+
+export async function deleteReview(id: string): Promise<boolean> {
+  if ((!API_BASE_URL && !APP_NAME) || !API_TOKEN) return false;
+  try {
+    const url = `${BASE}/review/${id}`;
+    const res = await bubbleFetch(url, { method: "DELETE", headers: headers() });
+    if (!res.ok) {
+      console.error(`[deleteReview] HTTP ${res.status}:`, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[deleteReview] Exception:", e);
+    return false;
   }
 }

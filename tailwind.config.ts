@@ -9,17 +9,24 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // CHIIZ 메인 컬러: Sky Blue
-        skyblue: "#00AEEF",
-        primary: "#00AEEF",
-        // 기존 포토그래퍼 앱 컬러 유지
+        // Cheiz Electric Blue (KIMI Design System)
+        cheiz: "#0055FF",
+        "cheiz-blue": "#0055FF",
+        "cheiz-orange": "#FF4B2B",
+        "cheiz-gray": "#F8F9FA",
+        "cheiz-ink": "#1A1A1A",
+        // Legacy alias
+        skyblue: "#0055FF",
+        primary: "#0055FF",
+        // 포토그래퍼 앱 컬러 유지
         accent: "#FF9F0A",
         surface: "#1C1C1E",
         border: "#2C2C2E",
         muted: "#8E8E93",
       },
       borderRadius: {
-        '3xl': '1.5rem', // rounded-3xl for buttons, cards
+        "2xl": "1rem",
+        "3xl": "1.5rem",
       },
     },
   },

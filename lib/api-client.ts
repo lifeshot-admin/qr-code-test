@@ -28,6 +28,19 @@ async function getHeaders(includeAuth: boolean = false): Promise<HeadersInit> {
     "Content-Type": "application/json",
   };
 
+  // ✅ Accept-Language 동적 주입 (다국어 데이터 일관성)
+  // 브라우저 환경에서는 navigator.language 기반, 아니면 기본 "ko"
+  if (typeof window !== "undefined" && navigator.language) {
+    const browserLang = navigator.language.split("-")[0]; // "ko-KR" → "ko"
+    const supportedLangs = ["ko", "ja", "en", "zh"];
+    const lang = supportedLangs.includes(browserLang) ? browserLang : "ko";
+    headers["Accept-Language"] = lang;
+    console.log(`🌐 [API Client] Accept-Language: ${lang} (from navigator.language: ${navigator.language})`);
+  } else {
+    headers["Accept-Language"] = "ko";
+    console.log(`🌐 [API Client] Accept-Language: ko (서버 사이드 기본값)`);
+  }
+
   if (includeAuth) {
     let token: string | null = null;
 
@@ -40,26 +53,11 @@ async function getHeaders(includeAuth: boolean = false): Promise<HeadersInit> {
         const { getSession } = await import("next-auth/react");
         const session = await getSession();
         
-        console.log("📋 [API Client] Session data:", {
-          hasSession: !!session,
-          hasUser: !!session?.user,
-          userEmail: session?.user?.email,
-          userNickname: (session?.user as any)?.nickname,
-          hasAccessToken: !!(session as any)?.accessToken,
-        });
-
         if (session) {
-          // accessToken은 session 객체 최상위에 있음
           token = (session as any).accessToken || null;
-          
-          if (token) {
-            console.log("✅ [API Client] Token found in NextAuth session");
-          } else {
-            console.warn("⚠️ [API Client] Session exists but accessToken is missing!");
-          }
         }
-      } catch (error) {
-        console.error("❌ [API Client] Failed to get NextAuth session:", error);
+      } catch {
+        // 세션 가져오기 실패 시 레거시 폴백 사용
       }
 
       // 2. sessionStorage 폴백 (레거시)
@@ -94,63 +92,18 @@ async function getHeaders(includeAuth: boolean = false): Promise<HeadersInit> {
       }
       
       // ✅ Token is valid, add to headers with Bearer prefix
-      // 🔍 Check if Bearer is already present (중복 방지)
-      let finalToken = token;
-      if (token.startsWith('Bearer ')) {
-        console.warn("⚠️ [API Client] Token already has 'Bearer ' prefix, using as-is");
-        finalToken = token; // Already has Bearer
-      } else if (token.startsWith('bearer ')) {
-        console.warn("⚠️ [API Client] Token has lowercase 'bearer ' prefix, normalizing to 'Bearer '");
-        finalToken = 'Bearer ' + token.substring(7); // Normalize to Bearer
-      } else {
-        // ✅ Add Bearer prefix (일반적인 경우)
-        finalToken = `Bearer ${token}`;
+      // 🔍 Bearer 이중 버그 원천 차단: 무조건 벗기고 → trim() → 한 번만 입히기
+      let pureTokenOnly = token;
+      // 모든 Bearer 접두사 반복 제거
+      while (/^Bearer\s+/i.test(pureTokenOnly)) {
+        pureTokenOnly = pureTokenOnly.replace(/^Bearer\s+/i, '');
       }
-      
+      // ✅ 양 끝 공백/줄바꿈 불순물 완전 제거 → INVALID_ACCESS_TOKEN 원천 차단
+      pureTokenOnly = pureTokenOnly.trim();
+      const finalToken = `Bearer ${pureTokenOnly}`;
+
       headers["Authorization"] = finalToken;
-      
-      let tokenType = "Unknown";
-      let isValid = false;
-      const pureToken = finalToken.replace(/^Bearer\s+/i, ''); // Bearer 제거한 순수 토큰
-      
-      if (pureToken.startsWith('eyJ')) {
-        tokenType = '✅ JWT Token (Standard)';
-        isValid = true;
-        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        console.log("🔍 [API Client] ✅ REAL JWT FOUND!");
-        console.log("  - Pure token prefix: eyJ (VALID JWT)");
-        console.log("  - First 20 chars:", pureToken.substring(0, 20) + "...");
-        console.log("  - Last 20 chars:", "..." + pureToken.substring(pureToken.length - 20));
-        console.log("  - Total length:", pureToken.length);
-        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      } else if (pureToken.length > 20 && !pureToken.includes(' ')) {
-        tokenType = '✅ Custom Backend Token';
-        isValid = true;
-      } else {
-        tokenType = '⚠️ Unknown Token Format';
-        isValid = false;
-      }
-      
-      console.log("🔐 [API Client] Authorization header added: Bearer " + pureToken.substring(0, 10) + "...");
-      console.log("🔑 [API Client] Token type:", tokenType);
-      console.log("🔍 [API Client] Token prefix (first 10 chars):", pureToken.substring(0, 10));
-      console.log("🔍 [API Client] Token length:", pureToken.length);
-      console.log("✅ [API Client] Token valid:", isValid ? "YES ✅" : "MAYBE ⚠️");
-      
-      // ✅ [최종 검증] 전체 헤더 형식 출력
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("🔐🔐🔐 [Final Header Check]");
-      console.log("Full Authorization Header:");
-      console.log(`  Authorization: ${finalToken.substring(0, 50)}...`);
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      
-      if (!isValid) {
-        console.warn("⚠️ [API Client] Unknown token format, proceeding anyway...");
-      }
     } else {
-      console.error("🚨🚨🚨 [API Client] NO AUTH TOKEN FOUND!");
-      console.error("🚨 [API Client] API call will FAIL with 401 Unauthorized");
-      console.error("🚨 [API Client] Please login first!");
       throw new Error("No authentication token available. Please login first.");
     }
   }
@@ -168,68 +121,79 @@ async function apiCall<T>(
 ): Promise<SwaggerResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
   
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`📡 [API Call] ${options.method || "GET"} ${url}`);
-  
-  // ✅ Await headers (now async)
   const headers = await getHeaders(requireAuth);
   
-  // ✅ [강제] 최종 머지된 헤더 생성 (fetch에 전달될 실제 헤더)
   const finalHeaders = {
     ...headers,
     ...options.headers,
   };
-  
-  // ✅ [증거] 최종 전송 헤더 로그 출력 (형님이 눈으로 확인)
-  if (requireAuth) {
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("🚀🚀🚀 [REAL OUTGOING HEADER] 실제 백엔드로 전송되는 헤더:");
-    
-    const finalHeadersObj = finalHeaders as Record<string, string>;
-    if (finalHeadersObj['Authorization']) {
-      const authHeader = finalHeadersObj['Authorization'];
-      
-      // ✅ 전체 Authorization 헤더 출력 (최소 100자)
-      const displayLength = Math.min(authHeader.length, 150);
-      console.log(`🚀 [REAL OUTGOING HEADER] Authorization: ${authHeader.substring(0, displayLength)}${authHeader.length > displayLength ? '...' : ''}`);
-      console.log(`   → Full length: ${authHeader.length} chars`);
-      
-      // ✅ Bearer 접두사 강제 확인
-      if (authHeader.startsWith('Bearer ')) {
-        console.log("   ✅ Bearer 접두사: 정상 (Bearer 포함) ✅");
-        console.log(`   ✅ Pure token starts with: ${authHeader.substring(7, 17)}...`);
-      } else {
-        console.error("   🚨🚨🚨 Bearer 접두사: 누락! (백엔드 인증 실패 확실!) 🚨🚨🚨");
-        console.error(`   🚨 Current header: ${authHeader.substring(0, 50)}...`);
-        console.error("   🚨 Expected format: Bearer eyJ...");
-      }
-    } else {
-      console.error("🚨🚨🚨 [CRITICAL] Authorization 헤더가 최종 헤더에 없습니다!");
-      console.error("🚨 API 호출이 401 Unauthorized로 실패할 것입니다!");
-    }
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  }
   
   const response = await fetch(url, {
     ...options,
     headers: finalHeaders,
   });
 
-  if (!response.ok) {
+    if (!response.ok) {
     const error: SwaggerResponse = await response.json().catch(() => ({
       statusCode: response.status,
       message: "API request failed",
       code: "ERROR",
       data: null,
     }));
-    console.error("[API Error]", error);
+
+    if (response.status === 401) {
+      const errorCode = (error.code || "").toUpperCase();
+      const errorMsg = (error.message || "").toUpperCase();
+
+      console.warn(`[API Client] 401 — code: ${error.code}, msg: ${error.message}`);
+
+      const isTokenExpired =
+        errorCode.includes("TOKEN_EXPIRED") ||
+        errorCode.includes("ACCESS_TOKEN") ||
+        errorMsg.includes("EXPIRED") ||
+        errorMsg.includes("TOKEN");
+
+      if (isTokenExpired && typeof window !== "undefined") {
+        try {
+          const { getSession } = await import("next-auth/react");
+          const updatedSession = await getSession();
+
+          if (updatedSession && (updatedSession as any).accessToken) {
+            const newToken = (updatedSession as any).accessToken as string;
+
+            // 리프레시 자체가 실패한 경우 — signOut 하지 않고 에러만 throw
+            if ((updatedSession as any).error === "RefreshAccessTokenError") {
+              console.warn("[API Client] 리프레시 토큰 만료 — 재로그인 필요");
+              throw new Error("세션이 만료되었습니다. 다시 로그인해주세요.");
+            }
+
+            let pureRetryToken = newToken;
+            while (/^Bearer\s+/i.test(pureRetryToken)) {
+              pureRetryToken = pureRetryToken.replace(/^Bearer\s+/i, '');
+            }
+            const retryAuth = `Bearer ${pureRetryToken.trim()}`;
+
+            const retryResponse = await fetch(url, {
+              ...options,
+              headers: { ...finalHeaders, Authorization: retryAuth },
+            });
+
+            if (retryResponse.ok) {
+              const retryData: SwaggerResponse<T> = await retryResponse.json();
+              return retryData;
+            }
+          }
+        } catch (refreshErr: any) {
+          if (refreshErr?.message?.includes("다시 로그인") || refreshErr?.message?.includes("만료")) throw refreshErr;
+          console.error("[API Client] 세션 갱신 실패:", refreshErr?.message);
+        }
+      }
+    }
+
     throw new Error(error.message || "API request failed");
   }
 
-  const data: SwaggerResponse<T> = await response.json();
-  console.log("[API Success]", data);
-  
-  return data;
+  return await response.json();
 }
 
 // ==================== AUTH APIs (Swagger 명세 기준) ====================
@@ -520,7 +484,6 @@ export async function signup(payload: SignupPayload): Promise<{
       : authHeader.startsWith("bearer ")
       ? authHeader.substring(7)
       : authHeader;
-    console.log("✅ [Signup] Token extracted from header:", accessToken.substring(0, 20) + "...");
   }
 
   if (!response.ok) {

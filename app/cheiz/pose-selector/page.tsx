@@ -17,7 +17,7 @@ export default function PoseSelectorPage() {
   // Login-Later 정책: 로그인 안 되어 있으면 로그인 페이지로
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.push("/api/auth/signin");
+      router.push("/auth/signin");
     }
   }, [status, router]);
 
@@ -72,7 +72,7 @@ export default function PoseSelectorPage() {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid mx-auto mb-4"></div>
+          <div className="animate-spin rounded-xl h-16 w-16 border-t-4 border-[#0055FF] border-solid mx-auto mb-4"></div>
           <p className="text-gray-600">포즈를 불러오는 중...</p>
         </div>
       </div>
@@ -85,14 +85,14 @@ export default function PoseSelectorPage() {
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white rounded-3xl shadow-lg p-12 text-center max-w-md"
+          className="bg-white rounded-2xl shadow-sm p-12 text-center max-w-md"
         >
           <div className="text-5xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold text-gray-800 mb-4">오류 발생</h2>
           <p className="text-gray-600 mb-8">{error}</p>
           <button
             onClick={fetchPoses}
-            className="bg-skyblue text-white font-bold py-3 px-8 rounded-3xl hover:bg-opacity-90 transition-all"
+            className="bg-[#0055FF] text-white font-bold py-3 px-8 rounded-2xl hover:bg-opacity-90 transition-all"
           >
             다시 시도
           </button>
@@ -108,9 +108,9 @@ export default function PoseSelectorPage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="bg-gradient-to-r from-skyblue to-blue-500 text-white py-8 px-6 sticky top-0 z-10 shadow-lg"
+        className="bg-[#0055FF] text-white py-8 px-6 sticky top-0 z-10 shadow-sm"
       >
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
+        <div className="max-w-md mx-auto flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold mb-2">포즈 선택하기</h1>
             <p className="text-sm opacity-90">
@@ -120,7 +120,7 @@ export default function PoseSelectorPage() {
           <button
             onClick={handleConfirm}
             disabled={selectedPoses.size === 0}
-            className="bg-white text-skyblue font-bold py-3 px-8 rounded-full hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+            className="bg-white text-[#0055FF] font-bold py-3 px-8 rounded-xl hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             선택 완료
           </button>
@@ -129,7 +129,7 @@ export default function PoseSelectorPage() {
 
       {/* Pose Grid */}
       <section className="py-12 px-6">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-md mx-auto">
           {poses.length === 0 ? (
             <motion.div
               initial={{ opacity: 0 }}
@@ -152,8 +152,8 @@ export default function PoseSelectorPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05, duration: 0.4 }}
                     onClick={() => togglePoseSelection(pose._id)}
-                    className={`relative rounded-3xl overflow-hidden cursor-pointer shadow-lg transition-all transform hover:scale-105 ${
-                      isSelected ? "ring-4 ring-skyblue" : ""
+                    className={`relative rounded-2xl overflow-hidden cursor-pointer shadow-sm transition-all transform hover:scale-105 ${
+                      isSelected ? "ring-4 ring-[#0055FF]" : ""
                     }`}
                   >
                     {/* Image */}
@@ -174,7 +174,7 @@ export default function PoseSelectorPage() {
                         <motion.div
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
-                          className="absolute top-4 right-4 bg-skyblue text-white rounded-full w-10 h-10 flex items-center justify-center shadow-lg"
+                          className="absolute top-4 right-4 bg-[#0055FF] text-white rounded-xl w-10 h-10 flex items-center justify-center shadow-sm"
                         >
                           <svg
                             className="w-6 h-6"
@@ -211,7 +211,7 @@ export default function PoseSelectorPage() {
       {/* Footer Info */}
       {poses.length > 0 && (
         <section className="py-8 px-6 bg-gray-50">
-          <div className="max-w-6xl mx-auto text-center">
+          <div className="max-w-md mx-auto text-center">
             <p className="text-gray-600">
               💡 Tip: 원하는 포즈를 여러 개 선택할 수 있습니다.
             </p>

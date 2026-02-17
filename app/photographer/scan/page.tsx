@@ -29,7 +29,7 @@ function ScanRedirect() {
   return (
     <div className="h-screen flex items-center justify-center bg-black">
       <div className="text-center">
-        <div className="w-12 h-12 border-4 border-skyblue border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <div className="w-12 h-12 border-4 border-[#0055FF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
         <p className="text-white text-sm">QR 코드 처리 중...</p>
       </div>
     </div>
@@ -41,7 +41,7 @@ export default function ScanPage() {
     <Suspense
       fallback={
         <div className="h-screen flex items-center justify-center bg-black">
-          <div className="w-12 h-12 border-4 border-skyblue border-t-transparent rounded-full animate-spin" />
+          <div className="w-12 h-12 border-4 border-[#0055FF] border-t-transparent rounded-full animate-spin" />
         </div>
       }
     >

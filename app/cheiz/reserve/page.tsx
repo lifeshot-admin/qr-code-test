@@ -28,7 +28,7 @@ function ReserveContent() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid mx-auto mb-4"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid mx-auto mb-4"></div>
         <p className="text-gray-600">리디렉션 중...</p>
       </div>
     </div>
@@ -39,7 +39,7 @@ export default function ReservePage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid"></div>
       </div>
     }>
       <ReserveContent />

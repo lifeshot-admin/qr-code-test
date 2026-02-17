@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log(`${getTimestamp()} 🏰 [BUBBLE KINGDOM] STEP 2: Creating reserved_pose records`);
     console.log(`${getTimestamp()} 🔗 Parent ID (pose_reservation_Id):`, pose_reservation_id);
-    console.log(`${getTimestamp()} 📸 Selected poses count:`, selected_poses?.length || 0);
+    console.log(`${getTimestamp()} 📸 reserved_pose 저장 대상 수:`, selected_poses?.length || 0);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Validation
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (selected_poses.length === 0) {
-      console.warn(`${getTimestamp()} ⚠️ [BUBBLE] No poses to save`);
+      console.warn(`${getTimestamp()} ⚠️ [BUBBLE] reserved_pose 저장 대상 없음`);
       return NextResponse.json({
         success: true,
         created_count: 0,

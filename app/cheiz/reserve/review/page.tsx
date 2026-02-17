@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { useReservationStore, validateReservation } from "@/lib/reservation-store";
@@ -58,6 +58,16 @@ function ReviewContent() {
   const [lightboxPersona, setLightboxPersona] = useState<string | null>(null);
   
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // ━━━ 이메일 인증 상태 ━━━
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [codeSending, setCodeSending] = useState(false);
+  const [codeVerifying, setCodeVerifying] = useState(false);
+  const [emailError, setEmailError] = useState("");
   
   // ✅ Zustand store
   const {
@@ -66,6 +76,8 @@ function ReviewContent() {
     spots,
     spotSelections,
     folderId,
+    scheduleId,
+    guestCount,
     editMode,
     existingReservationId,
     setTourId,
@@ -83,7 +95,7 @@ function ReviewContent() {
     if (status === "loading") return;
 
     if (!session) {
-      router.push("/api/auth/signin");
+      router.replace("/auth/signin?callbackUrl=" + encodeURIComponent(window.location.pathname + window.location.search));
       return;
     }
 
@@ -173,6 +185,81 @@ function ReviewContent() {
     fetchPoseDetails();
   }, [tour, spotSelections]);
 
+  // ━━━ 이메일 자동 판별 ━━━
+  useEffect(() => {
+    if (!session?.user?.email) return;
+    const email = session.user.email;
+    setEmailInput(email);
+
+    // 구글 로그인 또는 이미 인증된 계정이면 자동 통과
+    const isGoogleUser = (session as any)?.provider === "google" || email.endsWith("@gmail.com");
+    const isVerified = (session.user as any)?.email_verified === true || (session.user as any)?.emailVerified === true;
+
+    if (isGoogleUser || isVerified) {
+      setEmailVerified(true);
+      console.log(`[EMAIL] 자동 인증 통과 — ${email} (${isGoogleUser ? "Google" : "인증완료"})`);
+    } else {
+      console.log(`[EMAIL] 인증 필요 — ${email}`);
+    }
+  }, [session]);
+
+  // ━━━ 인증번호 발송 ━━━
+  const sendVerificationCode = useCallback(async () => {
+    if (!emailInput || !emailInput.includes("@")) {
+      setEmailError("유효한 이메일을 입력해주세요.");
+      return;
+    }
+    setCodeSending(true);
+    setEmailError("");
+    try {
+      const res = await fetch("/api/backend/send-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailInput }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCodeSent(true);
+        setEmailError("");
+      } else {
+        setEmailError(data.error || "발송 실패");
+      }
+    } catch {
+      setEmailError("인증번호 발송 중 오류가 발생했습니다.");
+    } finally {
+      setCodeSending(false);
+    }
+  }, [emailInput]);
+
+  // ━━━ 인증번호 검증 ━━━
+  const verifyCode = useCallback(async () => {
+    if (!verificationCode.trim()) {
+      setEmailError("인증번호를 입력해주세요.");
+      return;
+    }
+    setCodeVerifying(true);
+    setEmailError("");
+    try {
+      const res = await fetch("/api/backend/send-verification", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailInput, code: verificationCode.trim() }),
+      });
+      const data = await res.json();
+      if (data.success && data.verified) {
+        setEmailVerified(true);
+        setCodeSent(false);
+        setEmailError("");
+      } else {
+        setEmailError(data.error || "인증 실패");
+      }
+    } catch {
+      setEmailError("인증 확인 중 오류가 발생했습니다.");
+    } finally {
+      setCodeVerifying(false);
+    }
+  }, [emailInput, verificationCode]);
+
   // Validation
   const validation = tour ? validateReservation(
     spotSelections,
@@ -212,22 +299,11 @@ function ReviewContent() {
       return;
     }
 
-    // ✅ [검증 4] folderId 확인 (가장 중요!)
-    if (!folderId) {
-      alert("Folder ID를 확인할 수 없습니다. 처음부터 다시 시작해주세요.");
-      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.error(`${getTimestamp()} ❌❌❌ [CRITICAL] FOLDER ID MISSING!`);
-      console.error(`${getTimestamp()} Store folderId:`, folderId);
-      console.error(`${getTimestamp()} URL에 folder_id가 포함되어 있는지 확인하세요!`);
-      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      return;
-    }
-
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log(`${getTimestamp()} 🏰 [BUBBLE KINGDOM] Starting reservation process`);
+    console.log(`${getTimestamp()} 🏰 Starting reservation process (Backend First!)`);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log(`${getTimestamp()} 📦 [Parameters Validation]`);
-    console.log(`${getTimestamp()}   📁 Folder ID (출입증):`, folderId, "✅");
+    console.log(`${getTimestamp()} 📦 [Parameters]`);
+    console.log(`${getTimestamp()}   📁 기존 Folder ID:`, folderId ?? "(없음 - 신규)");
     console.log(`${getTimestamp()}   🎫 Tour ID:`, tourId, "✅");
     console.log(`${getTimestamp()}   👤 User ID:`, session.user.id, "✅");
     console.log(`${getTimestamp()}   📸 Total Poses:`, getTotalSelectedCount(), "✅");
@@ -236,6 +312,71 @@ function ReviewContent() {
     setSubmitting(true);
 
     try {
+      // ━━━ STEP 0: 백엔드 폴더 생성 (Backend First!) ━━━
+      let finalFolderId = folderId;
+
+      console.log(`${getTimestamp()} 📁 [STEP 0] 백엔드 폴더 생성 API 호출...`);
+      try {
+        const folderName = tour?.tour_name || "촬영 예약";
+        const folderPayload = {
+          scheduleId: scheduleId || tourId,
+          name: folderName,
+          hostUserId: session.user.id,
+          personCount: guestCount.adults || 1,
+        };
+        console.log(`${getTimestamp()}   📤 Folder Payload: ${JSON.stringify(folderPayload)}`);
+
+        const folderRes = await fetch("/api/backend/create-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(folderPayload),
+        });
+
+        console.log(`${getTimestamp()}   📥 폴더 API 응답: ${folderRes.status}`);
+
+        if (folderRes.ok) {
+          const folderData = await folderRes.json();
+          console.log(`${getTimestamp()}   📦 폴더 응답: ${JSON.stringify(folderData).substring(0, 300)}`);
+          if (folderData.folderId) {
+            finalFolderId = folderData.folderId;
+            setFolderId(folderData.folderId);
+            console.log(`${getTimestamp()}   ✅ 새 folderId 발급: ${finalFolderId}`);
+          } else {
+            console.warn(`${getTimestamp()}   ⚠️ folderId 없음, 기존값 사용: ${folderId}`);
+          }
+        } else {
+          const errText = await folderRes.text();
+          console.error(`${getTimestamp()}   ❌ 폴더 생성 실패 (${folderRes.status}): ${errText.substring(0, 200)}`);
+
+          // 401 인증 만료 → 명확한 안내 후 버블 호출 완전 중단
+          if (folderRes.status === 401) {
+            let errData: any = {};
+            try { errData = JSON.parse(errText); } catch {}
+            const isAuthExpired = errData.code === "AUTH_EXPIRED";
+            throw new Error(
+              isAuthExpired
+                ? "인증이 만료되었습니다. 다시 로그인 후 예약을 진행해주세요."
+                : `인증 오류가 발생했습니다 (HTTP 401). 다시 로그인해주세요.`
+            );
+          }
+
+          // 기타 실패 시 버블 호출 중단
+          throw new Error(`백엔드 예약 폴더 생성 실패 (HTTP ${folderRes.status})`);
+        }
+      } catch (folderErr: any) {
+        if (folderErr.message.includes("백엔드 예약 폴더 생성 실패")) {
+          throw folderErr;
+        }
+        console.warn(`${getTimestamp()}   ⚠️ 폴더 생성 예외: ${folderErr.message}`);
+        throw new Error(`폴더 생성 중 오류: ${folderErr.message}`);
+      }
+
+      if (!finalFolderId) {
+        throw new Error("폴더 ID를 확보할 수 없습니다. 백엔드 응답을 확인하세요.");
+      }
+
+      console.log(`${getTimestamp()} 📁 최종 확정 folderId: ${finalFolderId}`);
+
       // ✅ [수정 모드] 기존 예약 삭제 후 재생성
       if (editMode && existingReservationId) {
         console.log(`${getTimestamp()} ✏️ [EDIT MODE] 기존 예약 삭제 중... id=${existingReservationId}`);
@@ -254,11 +395,11 @@ function ReviewContent() {
         }
       }
 
-      // ✅ STEP 1: Create pose_reservation (Master Record)
+      // ✅ STEP 1: Create pose_reservation (Master Record) — 백엔드 성공 후에만!
       console.log(`${getTimestamp()} 🏰 [STEP 1] Creating pose_reservation...`);
       
       const step1Payload = {
-        folder_Id: folderId,
+        folder_Id: finalFolderId,
         tour_Id: tourId,
         user_Id: session.user.id,
       };
@@ -321,10 +462,10 @@ function ReviewContent() {
         });
       });
 
-      console.log(`${getTimestamp()} 📸 [STEP 2] Total poses to save: ${selectedPoses.length}`);
+      console.log(`${getTimestamp()} 📸 [STEP 2] reserved_pose 저장 대상 수: ${selectedPoses.length}`);
       
       if (selectedPoses.length === 0) {
-        throw new Error("No poses selected");
+        throw new Error("reserved_pose 선택 항목 없음");
       }
       
       const step2Payload = {
@@ -374,7 +515,7 @@ function ReviewContent() {
       console.log(`${getTimestamp()} ❌ Poses failed:`, step2Data.failed_count || 0);
       
       if (step2Data.failed_count > 0) {
-        console.warn(`${getTimestamp()} ⚠️ [WARNING] Some poses failed to save`);
+        console.warn(`${getTimestamp()} ⚠️ [WARNING] 일부 reserved_pose 저장 실패 (failed_count: ${step2Data.failed_count})`);
       }
       
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -386,22 +527,49 @@ function ReviewContent() {
       console.log(`${getTimestamp()} 📱 [STEP 3] Generating QR code...`);
       const qrData = `${window.location.origin}/photographer/scan?reservation_id=${bubbleReservationId}`;
       
+      // 6자리 백업 코드 추출 (Bubble _id에서 숫자만 뽑아 마지막 6자리)
+      const idNumbers = (bubbleReservationId || "").replace(/\D/g, "");
+      const backupCode = idNumbers.slice(-6);
+      
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       console.log(`${getTimestamp()} 📱 [QR CODE GENERATION]`);
       console.log(`${getTimestamp()} 🔗 QR Data URL:`, qrData);
+      console.log(`${getTimestamp()} 🔑 Bubble Reservation ID (원본):`, bubbleReservationId);
+      console.log(`${getTimestamp()} 🔢 6자리 백업 코드:`, backupCode);
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
       const qrDataUrl = await QRCode.toDataURL(qrData, {
         width: 300,
         margin: 2,
         color: {
-          dark: "#0EA5E9", // skyblue
+          dark: "#0055FF",
           light: "#FFFFFF",
         },
       });
       
       setQrCodeUrl(qrDataUrl);
       console.log(`${getTimestamp()} ✅ [QR CODE] Generated successfully`);
+
+      // ✅ STEP 3.5: Bubble DB에 qrcode_url 업데이트 (PATCH)
+      console.log(`${getTimestamp()} 📤 [STEP 3.5] Bubble DB에 qrcode_url 저장 중...`);
+      try {
+        const patchRes = await fetch("/api/bubble/update-reservation", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reservation_id: bubbleReservationId,
+            qrcode_url: qrData,
+          }),
+        });
+        if (patchRes.ok) {
+          console.log(`${getTimestamp()} ✅ [STEP 3.5] qrcode_url 저장 성공`);
+        } else {
+          const errText = await patchRes.text();
+          console.warn(`${getTimestamp()} ⚠️ [STEP 3.5] qrcode_url 저장 실패 (${patchRes.status}): ${errText.substring(0, 200)}`);
+        }
+      } catch (patchErr) {
+        console.warn(`${getTimestamp()} ⚠️ [STEP 3.5] qrcode_url PATCH 에러:`, patchErr);
+      }
 
       // ✅ [버그 수정] 예약 완료 플래그를 먼저 설정하여 useEffect 포즈 0개 경고 차단
       // ref는 동기적으로 즉시 반영됨 → clearAll() 이후 재렌더 시에도 확실히 방어
@@ -450,7 +618,7 @@ function ReviewContent() {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid mx-auto mb-4"></div>
           <p className="text-gray-600">리뷰 페이지를 준비하는 중...</p>
         </div>
       </div>
@@ -458,13 +626,13 @@ function ReviewContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white pb-32">
+    <div className="min-h-screen bg-white pb-32">
       {/* Sub Navigation (레이아웃 헤더와 중복 제거) */}
       <div className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-2 text-sm text-gray-500">
+        <div className="max-w-md mx-auto px-6 py-2 flex items-center gap-2 text-sm text-gray-500">
           <button
             onClick={handleBack}
-            className="hover:text-skyblue transition-colors"
+            className="hover:text-[#0055FF] transition-colors"
           >
             ← 스팟 선택
           </button>
@@ -474,13 +642,13 @@ function ReviewContent() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-md mx-auto px-6 py-8">
         <div className="mb-6">
-          <h2 className="text-4xl font-bold text-gray-800 mb-2">
+          <h2 className="text-4xl font-bold text-[#1A1A1A] mb-2">
             선택 내역 확인
           </h2>
           <p className="text-gray-600">
-            총 <span className="font-bold text-skyblue">{getTotalSelectedCount()}개</span>의 포즈를 선택하셨습니다 ✨
+            총 <span className="font-bold text-[#0055FF]">{getTotalSelectedCount()}개</span>의 포즈를 선택하셨습니다 ✨
           </p>
           <p className="text-sm text-gray-500 mt-2">
             💡 이미지를 클릭하면 크게 볼 수 있습니다
@@ -490,7 +658,7 @@ function ReviewContent() {
         {/* Spot별 선택 내역 - 스크롤 최적화 */}
         <div className="space-y-6 max-h-[calc(100vh-420px)] overflow-y-auto pr-2" style={{
           scrollbarWidth: 'thin',
-          scrollbarColor: '#0EA5E9 #E5E7EB'
+          scrollbarColor: '#0055FF #E5E7EB'
         }}>
           {Object.values(spotSelections)
             .filter((spot) => spot.selectedPoses.length > 0)
@@ -499,13 +667,13 @@ function ReviewContent() {
                 key={spot.spotId}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-3xl shadow-lg p-6"
+                className="bg-white rounded-2xl shadow-sm p-6"
               >
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-2xl font-bold text-gray-800">
+                  <h3 className="text-2xl font-bold text-[#1A1A1A]">
                     {spot.spotName}
                   </h3>
-                  <span className="bg-skyblue text-white px-4 py-1 rounded-full text-sm font-medium">
+                  <span className="bg-[#0055FF] text-white px-4 py-1 rounded-full text-sm font-medium">
                     {spot.selectedPoses.length}개
                   </span>
                 </div>
@@ -534,14 +702,16 @@ function ReviewContent() {
                             alt={`Pose ${poseId}`}
                             fill
                             className="object-cover"
+                            quality={60}
+                            sizes="120px"
                           />
                         )}
                         {pose?.persona && (
-                          <div className="absolute top-2 right-2 bg-white bg-opacity-90 text-skyblue px-2 py-1 rounded-full text-xs font-medium">
+                          <div className="absolute top-2 right-2 bg-white bg-opacity-90 text-[#0055FF] px-2 py-1 rounded-full text-xs font-medium">
                             {pose.persona}
                           </div>
                         )}
-                        <div className="absolute top-2 left-2 bg-skyblue text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold">
+                        <div className="absolute top-2 left-2 bg-[#0055FF] text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold">
                           ✓
                         </div>
                         {/* Hover overlay */}
@@ -572,19 +742,140 @@ function ReviewContent() {
         )}
       </div>
 
-      {/* 포즈 예약하기 Button (Fixed) */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-2xl z-50">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+      {/* ━━━ 이메일 확인 섹션 ━━━ */}
+      <div className="max-w-md mx-auto px-6 mt-6">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">📧</span>
+            <h3 className="text-sm font-bold text-gray-900">알림 수신 이메일</h3>
+            {emailVerified && (
+              <span className="ml-auto text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                인증완료
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-400 mb-3">
+            사진 보정 완료 알림이 이메일로 발송됩니다. 정확한 주소인지 확인해주세요.
+          </p>
+
+          {emailVerified && !emailEditing ? (
+            /* 인증 완료 상태 */
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 font-medium">
+                {emailInput}
+              </div>
+              <button
+                onClick={() => {
+                  setEmailEditing(true);
+                  setEmailVerified(false);
+                  setCodeSent(false);
+                  setVerificationCode("");
+                }}
+                className="px-3 py-3 text-xs font-bold text-[#0055FF] bg-[#0055FF]/10 rounded-xl hover:bg-[#0055FF]/20 active:scale-95 transition-all"
+              >
+                변경
+              </button>
+            </div>
+          ) : (
+            /* 인증 필요 상태 */
+            <div className="space-y-3">
+              {/* 이메일 입력 + 발송 버튼 */}
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => {
+                    setEmailInput(e.target.value);
+                    setCodeSent(false);
+                    setEmailError("");
+                  }}
+                  placeholder="이메일 주소"
+                  className="flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 border border-gray-200 outline-none focus:border-[#0055FF] transition-colors"
+                />
+                <button
+                  onClick={sendVerificationCode}
+                  disabled={codeSending || !emailInput.includes("@")}
+                  className="px-4 py-3 text-xs font-bold text-white bg-[#0055FF] rounded-xl disabled:opacity-40 active:scale-95 transition-all whitespace-nowrap"
+                >
+                  {codeSending ? "발송 중..." : codeSent ? "재발송" : "인증번호 발송"}
+                </button>
+              </div>
+
+              {/* 인증번호 입력 (코드 발송 후) */}
+              <AnimatePresence>
+                {codeSent && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={verificationCode}
+                        onChange={(e) => {
+                          setVerificationCode(e.target.value.replace(/\D/g, ""));
+                          setEmailError("");
+                        }}
+                        placeholder="6자리 인증번호"
+                        className="flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 border border-gray-200 outline-none focus:border-[#0055FF] transition-colors text-center tracking-[6px] font-bold"
+                      />
+                      <button
+                        onClick={verifyCode}
+                        disabled={codeVerifying || verificationCode.length < 6}
+                        className="px-4 py-3 text-xs font-bold text-white bg-green-600 rounded-xl disabled:opacity-40 active:scale-95 transition-all whitespace-nowrap"
+                      >
+                        {codeVerifying ? "확인 중..." : "확인"}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1.5">
+                      인증번호는 5분간 유효합니다.
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* 에러 메시지 */}
+              {emailError && (
+                <p className="text-xs text-red-500 font-medium">{emailError}</p>
+              )}
+            </div>
+          )}
+        </motion.div>
+      </div>
+
+      {/* 결제/예약 진행 Button (Fixed) - checkout 페이지로 이동 */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-lg z-50">
+        <div className="max-w-md mx-auto px-5 py-4">
+          {!emailVerified && (
+            <p className="text-xs text-center text-amber-600 font-medium mb-2">
+              이메일 인증을 완료해야 결제를 진행할 수 있습니다.
+            </p>
+          )}
           <button
-            onClick={handleReserve}
-            disabled={!validation?.canProceedToReview || submitting}
-            className={`w-full py-4 rounded-3xl font-bold text-lg transition-all ${
-              validation?.canProceedToReview && !submitting
-                ? "bg-skyblue text-white hover:bg-opacity-90 shadow-lg transform hover:scale-105"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            onClick={() => {
+              logUserAction("결제 진행", { tourId, folderId, poseCount: getTotalSelectedCount(), emailVerified });
+              const safeTourId = tourIdParam ? parseInt(tourIdParam, 10) : tourId;
+              router.push(`/cheiz/reserve/checkout?tour_id=${safeTourId}&folder_id=${folderId}`);
+            }}
+            disabled={!validation?.canProceedToReview || !emailVerified}
+            className={`w-full py-4 rounded-2xl font-bold text-base transition-all ${
+              validation?.canProceedToReview && emailVerified
+                ? "bg-[#0055FF] text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+                : "bg-gray-200 text-gray-400 cursor-not-allowed"
             }`}
           >
-            {submitting ? "예약 처리 중..." : `포즈 예약하기 (${getTotalSelectedCount()}개)`}
+            {emailVerified
+              ? `결제 진행하기 (${getTotalSelectedCount()}개)`
+              : "이메일 인증 후 결제 가능"}
           </button>
         </div>
       </div>
@@ -607,7 +898,7 @@ function ReviewContent() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
               transition={{ type: "spring", duration: 0.5 }}
-              className="relative max-w-4xl max-h-[90vh] w-full"
+              className="relative max-w-md max-h-[90vh] w-full"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Close button */}
@@ -616,7 +907,7 @@ function ReviewContent() {
                   setLightboxImage(null);
                   setLightboxPersona(null);
                 }}
-                className="absolute -top-12 right-0 text-white text-4xl hover:text-skyblue transition-colors z-10"
+                className="absolute -top-12 right-0 text-white text-4xl hover:text-[#0055FF] transition-colors z-10"
               >
                 ✕
               </button>
@@ -626,13 +917,13 @@ function ReviewContent() {
                 <img
                   src={lightboxImage}
                   alt="Pose Detail"
-                  className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+                  className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-lg"
                 />
               </div>
 
               {/* Persona badge */}
               {lightboxPersona && (
-                <div className="absolute top-4 right-4 bg-skyblue text-white px-4 py-2 rounded-full font-medium shadow-lg">
+                <div className="absolute top-4 right-4 bg-[#0055FF] text-white px-4 py-2 rounded-full font-medium shadow-lg">
                   {lightboxPersona}
                 </div>
               )}
@@ -665,10 +956,10 @@ function ReviewContent() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: 50 }}
               transition={{ type: "spring", duration: 0.6 }}
-              className="bg-white rounded-3xl p-8 md:p-12 max-w-md w-full text-center shadow-2xl"
+              className="bg-white rounded-2xl p-8 md:p-12 max-w-md w-full text-center shadow-lg"
             >
               <div className="text-6xl mb-4">✨</div>
-              <h2 className="text-3xl font-bold text-skyblue mb-4">
+              <h2 className="text-3xl font-bold text-[#0055FF] mb-4">
                 예약 완료!
               </h2>
               <p className="text-gray-600 text-lg mb-6">
@@ -691,11 +982,15 @@ function ReviewContent() {
                 </div>
               )}
 
+              {/* 6자리 백업 코드 (크게 표시) */}
               {reservationId && (
-                <div className="bg-skyblue/10 rounded-2xl p-4 mb-6">
-                  <p className="text-xs text-gray-500 mb-1">예약 번호</p>
-                  <p className="text-sm font-mono font-bold text-gray-700">
-                    {reservationId}
+                <div className="bg-[#0055FF]/10 rounded-2xl p-5 mb-6">
+                  <p className="text-xs text-gray-500 mb-2">예약 코드 (포토그래퍼에게 전달)</p>
+                  <p className="text-3xl font-mono font-extrabold tracking-[0.3em] text-[#0055FF]">
+                    {(reservationId.replace(/\D/g, "")).slice(-6)}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-2 font-mono break-all">
+                    ID: {reservationId}
                   </p>
                 </div>
               )}
@@ -707,7 +1002,7 @@ function ReviewContent() {
                     setShowSuccessModal(false);
                     router.push("/cheiz/my-tours");
                   }}
-                  className="w-full bg-skyblue text-white py-3 rounded-2xl font-bold hover:bg-opacity-90 transition-all"
+                  className="w-full bg-[#0055FF] text-white py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all"
                 >
                   마이페이지
                 </button>
@@ -717,7 +1012,7 @@ function ReviewContent() {
                     setShowSuccessModal(false);
                     router.push("/cheiz");
                   }}
-                  className="w-full bg-gray-100 text-gray-700 py-3 rounded-2xl font-medium hover:bg-gray-200 transition-all"
+                  className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition-all"
                 >
                   홈으로
                 </button>
@@ -734,7 +1029,7 @@ export default function ReviewPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid"></div>
       </div>
     }>
       <ReviewContent />

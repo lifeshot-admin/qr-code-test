@@ -15,7 +15,7 @@ declare global {
 // ─── localStorage 키 ───
 const CAMERA_DEVICE_KEY = "chiiz_last_camera_deviceId";
 
-export type ScanMode = "qr" | "manual";
+export type ScanMode = "qr" | "manual" | "code";
 
 export type CameraScannerProps = {
   mode: "scan" | "auth";
@@ -23,6 +23,7 @@ export type CameraScannerProps = {
   onScanModeChange?: (mode: ScanMode) => void;
   onQRSuccess?: (reservationId: string, rawUrl: string) => void;
   onManualCapture?: (reservationId: string, imageDataUrl: string) => void;
+  onCodeSubmit?: (code: string) => void;
   onAuthCapture?: (imageDataUrl: string) => void;
   statusText?: string;
   sessionCount?: number;
@@ -36,6 +37,7 @@ export function CameraScanner({
   onScanModeChange,
   onQRSuccess,
   onManualCapture,
+  onCodeSubmit,
   onAuthCapture,
   statusText: externalStatus,
   sessionCount = 0,
@@ -57,6 +59,10 @@ export function CameraScanner({
 
   const isAuthMode = mode === "auth";
   const displayStatus = externalStatus ?? status;
+
+  // ━━━ 6자리 코드 직접 입력 ━━━
+  const [codeInput, setCodeInput] = useState("");
+  const [codeSubmitting, setCodeSubmitting] = useState(false);
 
   // ─── BarcodeDetector 초기화 (하드웨어 가속) ───
   useEffect(() => {
@@ -214,7 +220,7 @@ export function CameraScanner({
     let cancelled = false;
 
     async function scanFrame(timestamp: number) {
-      if (cancelled) return;
+      if (cancelled || !video || !canvas || !ctx) return;
 
       // 최소 간격 체크 (20fps 유지)
       if (timestamp - lastScanTime < SCAN_INTERVAL) {
@@ -223,7 +229,7 @@ export function CameraScanner({
       }
       lastScanTime = timestamp;
 
-      if (video!.readyState < video!.HAVE_ENOUGH_DATA) {
+      if (video.readyState < video.HAVE_ENOUGH_DATA) {
         scanLoopRef.current = requestAnimationFrame(scanFrame);
         return;
       }
@@ -231,16 +237,16 @@ export function CameraScanner({
       try {
         // 방법 1: BarcodeDetector (네이티브 하드웨어 가속)
         if (detector) {
-          const results = await detector.detect(video!);
+          const results = await detector.detect(video);
           if (!cancelled && results.length > 0 && results[0].rawValue) {
             handleQRSuccess(results[0].rawValue);
             return; // 성공 시 루프 종료
           }
         } else {
           // 방법 2: jsQR (소프트웨어 폴백)
-          canvas.width = video!.videoWidth;
-          canvas.height = video!.videoHeight;
-          ctx.drawImage(video!, 0, 0, canvas.width, canvas.height);
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const code = jsQR(imageData.data, imageData.width, imageData.height, {
             inversionAttempts: "attemptBoth",
@@ -414,24 +420,76 @@ export function CameraScanner({
       {/* 하단 컨트롤 */}
       <div className="flex-shrink-0 bg-surface px-5 pt-5 pb-8 border-t border-border">
         {!isAuthMode && (
-          <div className="flex gap-2.5 mb-4">
+          <div className="flex gap-2 mb-4">
             <button
               type="button"
               onClick={() => setMode("qr")}
-              className={`flex-1 py-3.5 rounded-xl text-[15px] font-semibold transition-colors ${
+              className={`flex-1 py-3.5 rounded-xl text-[14px] font-semibold transition-colors ${
                 scanMode === "qr" ? "bg-primary text-black" : "bg-border text-muted"
               }`}
             >
-              📱 QR 스캔
+              📱 QR
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("code")}
+              className={`flex-1 py-3.5 rounded-xl text-[14px] font-semibold transition-colors ${
+                scanMode === "code" ? "bg-primary text-black" : "bg-border text-muted"
+              }`}
+            >
+              🔢 코드 입력
             </button>
             <button
               type="button"
               onClick={() => setMode("manual")}
-              className={`flex-1 py-3.5 rounded-xl text-[15px] font-semibold transition-colors ${
+              className={`flex-1 py-3.5 rounded-xl text-[14px] font-semibold transition-colors ${
                 scanMode === "manual" ? "bg-primary text-black" : "bg-border text-muted"
               }`}
             >
-              📸 예약화면 촬영
+              📸 촬영
+            </button>
+          </div>
+        )}
+
+        {/* 코드 직접 입력 모드 */}
+        {!isAuthMode && scanMode === "code" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted text-center">고객의 6자리 예약 코드를 입력하세요</p>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              className="w-full h-14 text-center text-2xl font-mono font-bold tracking-[0.5em] bg-white text-black rounded-xl border-2 border-border focus:border-primary outline-none transition-colors"
+            />
+            <button
+              type="button"
+              disabled={codeInput.length < 6 || codeSubmitting}
+              onClick={async () => {
+                if (codeInput.length < 6) return;
+                setCodeSubmitting(true);
+                try {
+                  // 6자리 코드로 예약 매칭 시도
+                  const res = await fetch(`/api/bubble/match-reservation-code?code=${codeInput}`);
+                  const data = await res.json();
+                  if (data.success && data.reservationId) {
+                    onCodeSubmit?.(data.reservationId);
+                    // QR 성공과 동일한 플로우 진입
+                    onQRSuccess?.(data.reservationId, `CODE_${codeInput}`);
+                  } else {
+                    alert(data.message || "해당 코드와 일치하는 예약을 찾을 수 없습니다.");
+                  }
+                } catch {
+                  alert("코드 확인 중 오류가 발생했습니다.");
+                } finally {
+                  setCodeSubmitting(false);
+                }
+              }}
+              className="w-full py-4 rounded-[14px] text-[17px] font-bold bg-white text-black mb-2.5 disabled:opacity-40 transition-opacity"
+            >
+              {codeSubmitting ? "확인 중..." : "예약 확인하기"}
             </button>
           </div>
         )}

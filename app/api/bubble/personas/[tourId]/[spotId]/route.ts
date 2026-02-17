@@ -25,7 +25,7 @@ export async function GET(
     
     console.log("  ✅ parseInt 후 tourId (number):", tourId);
     console.log("  ✅ parseInt 후 spotId (number):", spotId);
-    console.log("  ⚠️ tourId가 11093이면 잘못됨! 30처럼 작은 숫자여야 함!");
+    console.log("  ⚠️ tourId가 11093이면 잘못됨! 27처럼 작은 숫자여야 함!");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
     if (isNaN(tourId) || isNaN(spotId)) {

@@ -22,6 +22,9 @@ export type Tour = {
   tour_Id?: number;
   tour_name?: string;
   tour_date?: string;
+  tour_time?: string;       // 촬영 시간 (HH:MM)
+  tour_location?: string;   // 장소 (교토/아라시야마 등)
+  tour_thumbnail?: string;  // 썸네일 이미지 URL
   max_total?: number;
   min_total?: number;
 };
@@ -35,6 +38,24 @@ export type Spot = {
   min_count_limit?: number;
 };
 
+export type GuestCount = {
+  adults: number;
+  children: number;
+};
+
+// ✅ 크레딧(GIFT/WALLET) 관련 타입
+export type CreditBalance = {
+  photoCredits: number;    // 사진 다운로드권 크레딧
+  aiCredits: number;       // AI 보정 크레딧
+  retouchCredits: number;  // 리터치(보정) 크레딧
+};
+
+export type AppliedCredits = {
+  photoCredits: number;    // 적용할 사진 크레딧 수 (예약 시점에는 미사용, 보유만 표시)
+  aiCredits: number;       // 적용할 AI 크레딧 수 (0 or 1)
+  retouchCredits: number;  // 적용할 리터치 크레딧 수
+};
+
 export type ReservationState = {
   // Current tour context
   tourId: number | null;
@@ -44,6 +65,19 @@ export type ReservationState = {
   // ✅ Folder ID from Java backend (출입증 번호)
   folderId: number | null;
   
+  // ✅ 자바 백엔드 scheduleId (Swagger 규격 필수값)
+  scheduleId: number | null;
+  
+  // ✅ 인원 선택
+  guestCount: GuestCount;
+  
+  // ✅ AI 보정 선택
+  aiRetouching: boolean;
+  
+  // ✅ 크레딧(GIFT/WALLET) 상태
+  creditBalance: CreditBalance;     // 보유 크레딧 잔액
+  appliedCredits: AppliedCredits;   // 적용할 크레딧 수
+
   // ✅ [수정 모드] 기존 예약 정보
   editMode: boolean;
   existingReservationId: string | null;
@@ -57,6 +91,13 @@ export type ReservationState = {
   setTour: (tour: Tour | null) => void;
   setSpots: (spots: Spot[]) => void;
   setFolderId: (folderId: number | null) => void;
+  setScheduleId: (scheduleId: number | null) => void;
+  setGuestCount: (count: GuestCount) => void;
+  setAiRetouching: (value: boolean) => void;
+  
+  // ✅ 크레딧 액션
+  setCreditBalance: (balance: CreditBalance) => void;
+  setAppliedCredits: (applied: AppliedCredits) => void;
   
   // ✅ [수정 모드] 액션
   setEditMode: (mode: boolean, reservationId?: string | null, poseIds?: string[]) => void;
@@ -86,6 +127,11 @@ export const useReservationStore = create<ReservationState>()(
       tour: null,
       spots: [],
       folderId: null, // ✅ 자바 백엔드 folderId (출입증)
+      scheduleId: null, // ✅ 자바 백엔드 scheduleId (Swagger 필수값)
+      guestCount: { adults: 1, children: 0 },
+      aiRetouching: false,
+      creditBalance: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
+      appliedCredits: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
       editMode: false,
       existingReservationId: null,
       pendingPoseIds: [],
@@ -127,6 +173,41 @@ export const useReservationStore = create<ReservationState>()(
       setFolderId: (folderId) => {
         set({ folderId });
         console.log("📁 [Store] Folder ID set:", folderId);
+      },
+
+      // Set schedule ID (Java backend Swagger 필수값)
+      setScheduleId: (scheduleId) => {
+        set({ scheduleId });
+        console.log("📅 [Store] Schedule ID set:", scheduleId);
+      },
+
+      // Set guest count
+      setGuestCount: (count) => {
+        set({ guestCount: count });
+      },
+
+      // Set AI retouching
+      setAiRetouching: (value) => {
+        set({ aiRetouching: value });
+      },
+
+      // ✅ 크레딧 잔액 설정 (API에서 가져온 데이터)
+      setCreditBalance: (balance) => {
+        set({ creditBalance: balance });
+        console.log("💰 [Store] Credit balance set:", balance);
+      },
+
+      // ✅ 적용 크레딧 설정 (사용자가 조절)
+      setAppliedCredits: (applied) => {
+        const balance = get().creditBalance;
+        // 검증: 보유량 초과 방지
+        const safeApplied = {
+          photoCredits: Math.min(Math.max(0, applied.photoCredits), balance.photoCredits),
+          aiCredits: Math.min(Math.max(0, applied.aiCredits), balance.aiCredits),
+          retouchCredits: Math.min(Math.max(0, applied.retouchCredits), balance.retouchCredits),
+        };
+        set({ appliedCredits: safeApplied });
+        console.log("🎫 [Store] Applied credits set:", safeApplied);
       },
 
       // ✅ [수정 모드] 기존 예약 수정 진입
@@ -276,6 +357,11 @@ export const useReservationStore = create<ReservationState>()(
           tour: null,
           spots: [],
           folderId: null,
+          scheduleId: null,
+          guestCount: { adults: 1, children: 0 },
+          aiRetouching: false,
+          creditBalance: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
+          appliedCredits: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
           editMode: false,
           existingReservationId: null,
           pendingPoseIds: [],
@@ -287,10 +373,18 @@ export const useReservationStore = create<ReservationState>()(
     {
       name: 'cheiz-reservation-storage', // localStorage key
       storage: createJSONStorage(() => localStorage),
-      // Only persist selections, not temporary UI state
+      // ✅ persist 대상: 선택 상태만 저장, tourId는 제외!
+      // tourId는 항상 URL ?tour_id= 파라미터에서 가져와야 함
+      // (localStorage에 이전 세션의 stale 값이 남아 28 등 오래된 값이 유입되는 문제 방지)
       partialize: (state) => ({
-        tourId: state.tourId,
+        // tourId: 제거! → URL에서만 가져옴
+        tour: state.tour, // ✅ Persist tour metadata (이름, 썸네일, 장소, 일정 등)
         folderId: state.folderId, // ✅ Persist folder ID
+        scheduleId: state.scheduleId, // ✅ Persist schedule ID (Swagger 필수값)
+        guestCount: state.guestCount,
+        aiRetouching: state.aiRetouching,
+        creditBalance: state.creditBalance,
+        appliedCredits: state.appliedCredits,
         editMode: state.editMode,
         existingReservationId: state.existingReservationId,
         pendingPoseIds: state.pendingPoseIds,

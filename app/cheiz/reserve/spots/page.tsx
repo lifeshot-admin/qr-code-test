@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
+import { Camera, Loader2 } from "lucide-react";
 import { useReservationStore, validateReservation, type Tour, type Spot } from "@/lib/reservation-store";
+import { useHasMounted } from "@/lib/use-has-mounted";
 
 /**
  * 이미지 URL 정규화
@@ -18,6 +20,7 @@ function normalizeImageUrl(url: string | undefined): string | undefined {
 }
 
 function SpotsContent() {
+  const hasMounted = useHasMounted();
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -25,8 +28,9 @@ function SpotsContent() {
   const tourIdParam = searchParams.get("tour_id");
   const folderIdParam = searchParams.get("folder_id"); // ✅ 출입증 확보
   const [loading, setLoading] = useState(true);
-  
-  const modeParam = searchParams.get("mode"); // ✅ edit 모드 감지
+  const [navigating, setNavigating] = useState(false);
+
+  const modeParam = searchParams.get("mode");
   
   // ✅ Zustand store
   const {
@@ -46,6 +50,7 @@ function SpotsContent() {
     addPose,
     initializeSpotSelection,
     setEditMode,
+    clearSelections,
   } = useReservationStore();
   
   const [restoringPoses, setRestoringPoses] = useState(false);
@@ -53,12 +58,14 @@ function SpotsContent() {
   // Validation state
   const [validation, setValidation] = useState<ReturnType<typeof validateReservation> | null>(null);
 
+  // ✅ 인원 선택은 투어 상세 페이지에서만 처리 → spots에서는 자동 시트 없음
+
   // Step 1: Tour 유효성 검증
   useEffect(() => {
     if (status === "loading") return;
 
     if (!session) {
-      router.push("/api/auth/signin");
+      router.replace("/auth/signin?callbackUrl=" + encodeURIComponent(window.location.pathname + window.location.search));
       return;
     }
 
@@ -75,6 +82,19 @@ function SpotsContent() {
       return;
     }
 
+    // ✅ [STALE 가드] URL의 tour_id와 Zustand store의 tourId가 다르면 선택 데이터 초기화
+    // localStorage에 이전 세션의 stale tourId(예: 28)가 남아있으면 새 투어(27)와 충돌
+    if (tourId !== null && tourId !== parsedTourId) {
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("🚨 [STALE 가드] URL tour_id와 Store tourId 불일치 감지!");
+      console.log(`  📥 URL tour_id: ${parsedTourId}`);
+      console.log(`  📦 Store tourId (stale): ${tourId}`);
+      console.log("  🗑️ → 이전 세션 선택 데이터 초기화!");
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      // 이전 투어의 spotSelections 등을 정리
+      clearSelections();
+    }
+    
     setTourId(parsedTourId);
     
     // ✅ [강제] URL에서 folder_id를 Zustand에 자동 주입
@@ -93,52 +113,39 @@ function SpotsContent() {
     fetchTourData(parsedTourId);
   }, [status, session, tourIdParam, folderIdParam, router, setTourId, setFolderId, folderId]);
 
-  // Fetch tour data
+  // Fetch tour data + spots 병렬 호출
   const fetchTourData = async (tourIdValue: number) => {
     try {
-      const response = await fetch(`/api/bubble/tour/${tourIdValue}`);
-      
-      if (!response.ok) {
-        throw new Error("Failed to fetch tour");
+      setLoading(true);
+      const [tourRes, spotsRes] = await Promise.all([
+        fetch(`/api/bubble/tour/${tourIdValue}`),
+        fetch(`/api/bubble/spots/${tourIdValue}`),
+      ]);
+
+      if (!tourRes.ok) throw new Error("Failed to fetch tour");
+      const tourData = await tourRes.json();
+      setTour(tourData.tour);
+
+      if (spotsRes.ok) {
+        const spotsData = await spotsRes.json();
+        processSpotsData(spotsData, tourIdValue);
       }
-
-      const data = await response.json();
-      setTour(data.tour); // ✅ Zustand
-      
-      console.log("🎯 [TOUR DATA] Loaded:", {
-        tour_Id: data.tour.tour_Id,
-        max_total: data.tour.max_total,
-        min_total: data.tour.min_total,
-      });
-
-      fetchSpots(tourIdValue);
+      setLoading(false);
     } catch (error) {
-      console.error("Error fetching tour data:", error);
-      setTour(null); // ✅ Zustand
+      console.error("[SPOTS] 데이터 로드 실패:", error);
+      setTour(null);
       setLoading(false);
     }
   };
 
-  // Spot 목록 가져오기
-  const fetchSpots = async (tourIdValue: number) => {
+  // Spot 데이터 처리
+  const processSpotsData = (data: any, tourIdValue: number) => {
     try {
-      setLoading(true);
-      const response = await fetch(`/api/bubble/spots/${tourIdValue}`);
-      
-      if (!response.ok) {
-        throw new Error("Failed to fetch spots");
-      }
-
-      const data = await response.json();
-      const spotsData = data.spots || [];
-      setSpots(spotsData); // ✅ Zustand (will auto-initialize selections)
-      
-      console.log("📍 [SPOTS] Initialized:", spotsData.length);
+      const spotsArr = data.spots || [];
+      setSpots(spotsArr);
     } catch (error) {
-      console.error("Error fetching spots:", error);
-      setSpots([]); // ✅ Zustand
-    } finally {
-      setLoading(false);
+      console.error("[SPOTS] 처리 실패:", error);
+      setSpots([]);
     }
   };
 
@@ -159,35 +166,31 @@ function SpotsContent() {
         return;
       }
 
-      // 각 spot의 poses를 가져와서 매칭
-      for (const spot of spots) {
-        if (!spot.spot_Id) continue;
+      // 각 spot의 poses를 병렬로 가져와서 매칭
+      await Promise.allSettled(
+        spots.filter(spot => spot.spot_Id).map(async (spot) => {
+          try {
+            const res = await fetch(`/api/bubble/spot-poses-by-spot/${spot.spot_Id}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const spotPoses = data.poses || [];
 
-        try {
-          const res = await fetch(`/api/bubble/spot-poses-by-spot/${spot.spot_Id}`);
-          if (!res.ok) continue;
-          
-          const data = await res.json();
-          const spotPoses = data.poses || [];
+            initializeSpotSelection(
+              spot.spot_Id,
+              spot.spot_name || `Spot ${spot.spot_Id}`,
+              spot.min_count_limit || 0
+            );
 
-          // spot 초기화
-          initializeSpotSelection(
-            spot.spot_Id,
-            spot.spot_name || `Spot ${spot.spot_Id}`,
-            spot.min_count_limit || 0
-          );
-
-          // 해당 spot의 pose 중 기존 선택된 것 복원
-          for (const pose of spotPoses) {
-            if (poseIdsToRestore.includes(pose._id)) {
-              addPose(spot.spot_Id, pose._id);
-              console.log(`  ✅ [RESTORE] spot=${spot.spot_Id}, pose=${pose._id}`);
+            for (const pose of spotPoses) {
+              if (poseIdsToRestore.includes(pose._id)) {
+                addPose(spot.spot_Id, pose._id);
+              }
             }
+          } catch (e) {
+            console.error(`[EDIT MODE] spot ${spot.spot_Id} 포즈 로드 실패:`, e);
           }
-        } catch (e) {
-          console.error(`❌ [EDIT MODE] spot ${spot.spot_Id} 포즈 로드 실패:`, e);
-        }
-      }
+        })
+      );
 
       console.log("✏️ [EDIT MODE] 포즈 복원 완료");
       setRestoringPoses(false);
@@ -209,52 +212,155 @@ function SpotsContent() {
   }, [tour, spotSelections]);
 
   // 스팟 선택 시 포즈 선택 페이지로 이동
+  // ✅ URL 파라미터 우선: Zustand store 대신 URL에서 가져온 값을 강제 사용
   const handleSpotSelect = (spot: Spot) => {
-    if (!spot.spot_Id || !tourId) return;
+    // URL 파라미터에서 가져온 값을 최우선 사용 (store의 stale 값 방지)
+    const safeTourId = tourIdParam ? parseInt(tourIdParam, 10) : tourId;
+    if (!spot.spot_Id || !safeTourId) return;
     
-    // ✅ [강제] 필수 파라미터 모두 전달
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("📍 [NAV] Moving to poses:");
-    console.log("  🎫 tour_id:", tourId);
-    console.log("  📁 folder_id:", folderId || "⚠️ MISSING");
-    console.log("  📍 spot_id:", spot.spot_Id);
+    console.log(`  🎫 tour_id (URL우선): ${safeTourId}`);
+    console.log(`  🎫 tour_id (Store): ${tourId}`);
+    if (safeTourId !== tourId) {
+      console.log("  🚨 URL과 Store 값이 다름! URL 값 사용!");
+    }
+    console.log(`  📁 folder_id: ${folderId || "(신규 예약 - 없음)"}`);
+    console.log(`  📍 spot_id: ${spot.spot_Id}`);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
-    // ✅ folder_id가 없으면 경고
-    if (!folderId) {
-      console.error("🚨 [NAV] folder_id 없이 이동 시도! 예약 실패 가능성 높음!");
-    }
-    
-    const url = `/cheiz/reserve/poses?tour_id=${tourId}&spot_id=${spot.spot_Id}${folderId ? `&folder_id=${folderId}` : ''}`;
+    // folder_id는 신규 예약 시 없는 것이 정상 (결제 완료 후 생성됨)
+    let url = `/cheiz/reserve/poses?tour_id=${safeTourId}&spot_id=${spot.spot_Id}`;
+    if (folderId) url += `&folder_id=${folderId}`;
+    console.log(`  📡 [NAV] 최종 이동 URL: ${url}`);
     router.push(url);
   };
 
-  // 리뷰 페이지로 이동
+  // 다음 단계로 이동 (신규: AI 보정 / 수정: DB 갱신 후 마이페이지)
+  // ✅ URL 파라미터 우선: Zustand store 대신 URL에서 가져온 값을 강제 사용
   const handleProceedToReview = () => {
     if (!validation?.canProceedToReview) {
       alert(validation?.globalMessage || "선택 조건을 확인해주세요.");
       return;
     }
 
-    if (!tourId) {
+    const safeTourId = tourIdParam ? parseInt(tourIdParam, 10) : tourId;
+    if (!safeTourId) {
       alert("투어 정보를 확인할 수 없습니다.");
       return;
     }
 
-    // ✅ [강제] folder_id 검증
-    if (!folderId) {
-      alert("Folder ID를 확인할 수 없습니다. 처음부터 다시 시작해주세요.");
-      console.error("🚨 [NAV] folder_id 없이 리뷰 페이지 이동 차단!");
+    // ✅ [수정 모드] 결제 건너뛰기 → Bubble DB 갱신 → 마이페이지 복귀
+    if (editMode && modeParam === "edit") {
+      handleUpdatePoses(safeTourId);
       return;
     }
 
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("📋 [NAV] Moving to review page:");
-    console.log("  🎫 tour_id:", tourId);
-    console.log("  📁 folder_id:", folderId);
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    
-    router.push(`/cheiz/reserve/review?tour_id=${tourId}&folder_id=${folderId}`);
+    // ✅ [신규 예약] review 페이지 건너뛰고 AI 보정 페이지로 직행
+    setNavigating(true);
+    let aiUrl = `/cheiz/reserve/ai-retouching?tour_id=${safeTourId}`;
+    if (folderId) aiUrl += `&folder_id=${folderId}`;
+    router.push(aiUrl);
+  };
+
+  // ✅ [수정 모드 전용] 포즈 수정 완료 → Bubble DB 갱신(Delete & Insert) → 마이페이지 복귀
+  const [updatingPoses, setUpdatingPoses] = useState(false);
+  const { existingReservationId } = useReservationStore();
+
+  const handleUpdatePoses = async (safeTourId: number) => {
+    if (updatingPoses) return;
+    setUpdatingPoses(true);
+
+    try {
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("[EDIT_MODE] ✏️ 포즈 수정 완료 → DB 갱신 시작");
+      console.log(`  🆔 reservationId: ${existingReservationId}`);
+      console.log(`  📁 folderId: ${folderId}`);
+      console.log(`  🎫 tourId: ${safeTourId}`);
+
+      if (!existingReservationId) {
+        alert("수정할 예약 정보를 찾을 수 없습니다.");
+        setUpdatingPoses(false);
+        return;
+      }
+
+      // Step 1: 기존 reserved_pose 삭제
+      console.log("[EDIT_MODE] 🗑 기존 포즈 삭제 중...");
+      const deleteRes = await fetch("/api/bubble/cancel-reservation", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservation_id: existingReservationId }),
+      });
+
+      if (!deleteRes.ok) {
+        console.warn("[EDIT_MODE] ⚠️ 기존 예약 삭제 실패, 새로 생성 시도...");
+      } else {
+        console.log("[EDIT_MODE] ✅ 기존 포즈 삭제 완료");
+      }
+
+      // Step 2: 새 pose_reservation 생성
+      console.log("[EDIT_MODE] 📝 새 pose_reservation 생성 중...");
+      const step1Res = await fetch("/api/bubble/pose-reservation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          folder_Id: folderId,
+          tour_Id: safeTourId,
+          user_Id: session?.user?.id,
+        }),
+      });
+
+      if (!step1Res.ok) {
+        throw new Error("새 예약 생성에 실패했습니다.");
+      }
+
+      const step1Data = await step1Res.json();
+      const newReservationId = step1Data.reservation_id;
+      console.log(`[EDIT_MODE] ✅ 새 reservation ID: ${newReservationId}`);
+
+      // Step 3: 새로 선택한 포즈들 저장
+      const selectedPoses: any[] = [];
+      Object.values(spotSelections).forEach((spot) => {
+        spot.selectedPoses.forEach((poseId) => {
+          selectedPoses.push({
+            spot_pose_id: poseId,
+            spot_id: spot.spotId,
+            spot_name: spot.spotName,
+          });
+        });
+      });
+
+      console.log(`[EDIT_MODE] 📸 새 포즈 ${selectedPoses.length}개 저장 중...`);
+
+      if (selectedPoses.length > 0) {
+        const step2Res = await fetch("/api/bubble/reserved-pose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pose_reservation_id: newReservationId,
+            selected_poses: selectedPoses,
+          }),
+        });
+
+        if (!step2Res.ok) {
+          throw new Error("포즈 저장에 실패했습니다.");
+        }
+      }
+
+      console.log("[EDIT_MODE] 🎉 포즈 수정 완료!");
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+      // 수정 모드 해제
+      setEditMode(false, null, []);
+
+      alert("포즈가 성공적으로 수정되었습니다!");
+      router.push("/cheiz/my-tours");
+    } catch (error: any) {
+      console.error("[EDIT_MODE] ❌ 포즈 수정 실패:", error);
+      alert(`수정 실패: ${error.message}`);
+    } finally {
+      setUpdatingPoses(false);
+    }
   };
 
   // Tour가 없는 경우
@@ -276,7 +382,7 @@ function SpotsContent() {
           </p>
           <button
             onClick={() => router.push("/cheiz")}
-            className="bg-skyblue text-white font-bold py-4 px-8 rounded-3xl hover:bg-opacity-90 transition-all transform hover:scale-105 shadow-lg"
+            className="bg-[#0055FF] text-white font-bold py-4 px-8 rounded-xl hover:bg-opacity-90 transition-all transform hover:scale-105 shadow-sm"
           >
             쿠폰 조회하기
           </button>
@@ -285,177 +391,251 @@ function SpotsContent() {
     );
   }
 
-  // 로딩 중
+  // 로딩 중 — 스켈레톤 UI
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid mx-auto mb-4"></div>
-          <p className="text-gray-600">투어 정보를 불러오는 중...</p>
+      <div className="min-h-screen bg-white max-w-md mx-auto animate-pulse">
+        <div className="px-5 pt-12 pb-4 flex items-center gap-3">
+          <div className="h-6 w-6 bg-gray-200 rounded" />
+          <div className="h-[18px] bg-gray-200 rounded w-20" />
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="h-[60px] bg-gray-200 rounded-xl w-full" />
+        </div>
+        <div className="px-5 py-3 flex gap-2">
+          {[1,2,3,4].map(i => <div key={i} className="h-1 bg-gray-200 rounded-full flex-1" />)}
+        </div>
+        <div className="px-5 pt-4 space-y-4">
+          <div className="h-4 bg-gray-200 rounded w-32" />
+          <div className="grid grid-cols-2 gap-3">
+            {[1,2,3,4].map(i => <div key={i} className="h-[120px] bg-gray-200 rounded-xl" />)}
+          </div>
         </div>
       </div>
     );
   }
 
+  // Hydration-safe count
+  const safeSelectedCount = hasMounted ? getTotalSelectedCount() : 0;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white pb-32">
-      {/* Sub Navigation (레이아웃 헤더와 중복 제거) */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-2 text-sm text-gray-500">
+    <div className="min-h-screen bg-[#FFF9F5] pb-32">
+      {/* Header */}
+      <div className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-orange-100/50">
+        <div className="max-w-md mx-auto px-5 py-3 flex items-center justify-between">
           <button
             onClick={() => router.push("/cheiz/my-tours")}
-            className="hover:text-skyblue transition-colors"
+            className="text-gray-500 hover:text-[#0055FF] transition-colors text-sm flex items-center gap-1"
           >
-            ← 마이페이지
+            <span className="text-lg">&#8249;</span> 돌아가기
           </button>
-          <span className="text-gray-300">|</span>
-          <span className="font-medium text-gray-700">스팟 선택</span>
+          {/* Step Indicator */}
+          <div className="flex items-center gap-1.5">
+            <div className="w-8 h-1.5 rounded-full bg-[#0055FF]" />
+            <div className="w-8 h-1.5 rounded-full bg-gray-200" />
+            <div className="w-8 h-1.5 rounded-full bg-gray-200" />
+          </div>
+          {validation && (
+            <span className={`text-sm font-bold ${
+              safeSelectedCount >= (tour?.min_total || 0)
+                ? "text-green-500" : "text-gray-400"
+            }`}>
+              {safeSelectedCount}/{tour?.max_total || "?"}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Inline Progress Indicator (헤더 아래 간결 표시) */}
+      {/* Travel Vibe Hero */}
+      <div className="max-w-md mx-auto px-5 pt-8 pb-2">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <p className="text-sm font-medium text-[#FF4B2B] tracking-wider uppercase mb-2">
+            Step 1 of 3
+          </p>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4 leading-tight">
+            어디서 촬영할까요?
+          </h2>
+          <p className="text-base text-gray-500 leading-relaxed">
+            작가 추천 스팟에서 인생샷을 남겨보세요!<br />
+            포즈를 고르면, 포토그래퍼가 원하는 포즈를<br />
+            정확하게 찍어드릴 수 있어요.
+          </p>
+        </motion.div>
+      </div>
+
+      {/* Progress Bar */}
       {validation && (
-        <div className="max-w-7xl mx-auto px-6 pt-4">
-          <div className="flex items-center gap-3 bg-white rounded-2xl px-4 py-3 shadow-sm border border-gray-100">
-            <div className="flex-1">
-              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                <motion.div
-                  className={`h-full rounded-full ${
-                    getTotalSelectedCount() >= (tour?.max_total || 99)
-                      ? "bg-red-500"
-                      : getTotalSelectedCount() >= (tour?.min_total || 0)
-                      ? "bg-green-500"
-                      : "bg-skyblue"
-                  }`}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.min((getTotalSelectedCount() / (tour?.max_total || 99)) * 100, 100)}%` }}
-                  transition={{ duration: 0.3 }}
-                />
-              </div>
-            </div>
-            <span className={`text-sm font-bold whitespace-nowrap ${
-              getTotalSelectedCount() >= (tour?.max_total || 99)
-                ? "text-red-500"
-                : getTotalSelectedCount() >= (tour?.min_total || 0)
-                ? "text-green-500"
-                : "text-gray-500"
-            }`}>
-              {getTotalSelectedCount()} / {tour?.max_total || "?"}
-            </span>
+        <div className="max-w-md mx-auto px-5 py-3">
+          <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <motion.div
+              className={`h-full rounded-full ${
+                safeSelectedCount >= (tour?.max_total || 99)
+                  ? "bg-red-400"
+                  : safeSelectedCount >= (tour?.min_total || 0)
+                  ? "bg-green-400"
+                  : "bg-[#0055FF]"
+              }`}
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min((safeSelectedCount / (tour?.max_total || 99)) * 100, 100)}%` }}
+              transition={{ duration: 0.4 }}
+            />
           </div>
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h2 className="text-4xl font-bold text-gray-800 mb-2">
-            촬영 스팟 선택
-          </h2>
-          <p className="text-gray-600">
-            원하는 스팟을 선택하여 포즈를 골라보세요 ✨
+      {/* Spot Grid - 2x2 Polaroid Style */}
+      <div className="max-w-md mx-auto px-5 py-4">
+        {!spots || spots.length === 0 ? (
+          <p className="text-gray-400 text-center py-16">
+            사용 가능한 스팟이 없습니다.
           </p>
-        </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            {spots.map((spot, index) => {
+              const spotValidation = validation?.spotValidations.find(
+                (v) => v.spotId === spot.spot_Id
+              );
+              const rotations = [-1.5, 1, -0.5, 1.5, -1, 0.5];
+              const rotation = rotations[index % rotations.length];
 
-        {/* Spot Selection */}
-        <div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-6">
-            스팟 리스트
-          </h3>
-            {!spots || spots.length === 0 ? (
-              <p className="text-gray-500 text-center py-12">
-                사용 가능한 스팟이 없습니다.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {spots.map((spot) => {
-                  const spotValidation = validation?.spotValidations.find(
-                    (v) => v.spotId === spot.spot_Id
-                  );
-
-                  return (
-                  <motion.div
-                    key={spot._id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    whileHover={{ scale: 1.05 }}
-                    transition={{ duration: 0.3 }}
-                    onClick={() => handleSpotSelect(spot)}
-                    className="bg-white rounded-3xl shadow-lg overflow-hidden cursor-pointer group relative"
-                  >
-                    {spot.thumbnail && (
-                      <div className="relative h-48 bg-gray-100">
+              return (
+                <motion.div
+                  key={spot._id}
+                  initial={{ opacity: 0, y: 30, rotate: rotation * 2 }}
+                  animate={{ opacity: 1, y: 0, rotate: rotation }}
+                  whileHover={{ scale: 1.05, rotate: 0, zIndex: 10 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ duration: 0.4, delay: index * 0.08 }}
+                  onClick={() => handleSpotSelect(spot)}
+                  className="cursor-pointer group"
+                  style={{ transformOrigin: "center center" }}
+                >
+                  {/* Polaroid Card */}
+                  <div className="bg-white rounded-xl p-2 pb-4 shadow-md hover:shadow-xl transition-shadow duration-300 border border-gray-100/80">
+                    {/* Photo */}
+                    <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
+                      {spot.thumbnail ? (
                         <Image
                           src={normalizeImageUrl(spot.thumbnail) || ""}
                           alt={spot.spot_name || "Spot"}
                           fill
-                          className="object-cover group-hover:scale-110 transition-transform duration-300"
+                          className="object-cover group-hover:scale-110 transition-transform duration-500"
+                          quality={60}
+                          sizes="(max-width: 768px) 45vw, 200px"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = "none";
+                          }}
                         />
-                      </div>
-                    )}
-                    <div className="p-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xl font-bold text-gray-800">
-                          {spot.spot_name || `Spot ${spot.spot_Id}`}
-                        </h4>
-                        {/* Status Badge */}
-                        {spotValidation && (
-                          <div>
-                            {spotValidation.status === "complete" && (
-                              <span className="text-2xl">✅</span>
-                            )}
-                            {spotValidation.status === "incomplete" && (
-                              <span className="text-2xl">⚠️</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {spotValidation?.message && (
-                        <p className="text-red-500 text-sm font-medium mb-2">
-                          {spotValidation.message}
-                        </p>
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-gray-300">
+                          <Camera className="w-10 h-10" />
+                        </div>
                       )}
-                      {spotValidation && (
-                        <p className="text-gray-600 text-sm mb-2">
-                          선택됨: {spotValidation.count}개
-                          {spotValidation.minRequired > 0 && ` / 최소 ${spotValidation.minRequired}개`}
-                        </p>
+                      {/* Status Overlay */}
+                      {spotValidation && spotValidation.status === "complete" && (
+                        <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold shadow-md">
+                          {spotValidation.count}
+                        </div>
                       )}
-                      <p className="text-skyblue font-medium">
-                        포즈 선택하기 →
-                      </p>
+                      {spotValidation && spotValidation.status === "incomplete" && (
+                        <div className="absolute top-2 right-2 bg-orange-400 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold shadow-md">
+                          {spotValidation.count}
+                        </div>
+                      )}
                     </div>
-                  </motion.div>
-                );
-              })}
+                    {/* Label */}
+                    <div className="pt-2.5 px-1">
+                      <h4 className="text-sm font-bold text-gray-800 truncate">
+                        {spot.spot_name || `Spot ${spot.spot_Id}`}
+                      </h4>
+                      {spotValidation?.message ? (
+                        <p className="text-xs text-orange-500 mt-0.5 truncate">{spotValidation.message}</p>
+                      ) : (
+                        <p className="text-xs text-[#0055FF] mt-0.5 font-medium">
+                          포즈 고르기 &rarr;
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Fixed Bottom CTA - 모드에 따라 버튼 변경 */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 z-50">
+        <div className="max-w-md mx-auto px-5 py-4">
+          {validation?.globalMessage && (
+            <p className="text-center text-red-500 text-sm font-medium mb-2">
+              {validation.globalMessage}
+            </p>
+          )}
+          {editMode && modeParam === "edit" ? (
+            /* ✅ 수정 모드: 결제 동선 없이 바로 DB 갱신 */
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setEditMode(false, null, []);
+                  router.push("/cheiz/my-tours");
+                }}
+                className="flex-1 py-3.5 rounded-2xl font-medium text-sm border border-gray-300 text-gray-500 bg-transparent hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleProceedToReview}
+                disabled={!validation?.canProceedToReview || updatingPoses}
+                className={`flex-[2] py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                  validation?.canProceedToReview && !updatingPoses
+                    ? "bg-green-500 text-white shadow-lg shadow-green-500/25 active:scale-[0.98]"
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {updatingPoses ? "수정 중..." : `포즈 수정 완료 (${safeSelectedCount}개)`}
+              </button>
+            </div>
+          ) : (
+            /* ✅ 신규 예약 모드: 기존 동선 유지 */
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  const safeTourId = tourIdParam ? parseInt(tourIdParam, 10) : tourId;
+                  let skipUrl = `/cheiz/reserve/ai-retouching?tour_id=${safeTourId}`;
+                  if (folderId) skipUrl += `&folder_id=${folderId}`;
+                  router.push(skipUrl);
+                }}
+                className="flex-1 py-3.5 rounded-2xl font-medium text-sm border border-gray-300 text-gray-500 bg-transparent hover:bg-gray-50 transition-colors"
+              >
+                건너뛰기
+              </button>
+              <button
+                onClick={handleProceedToReview}
+                disabled={!validation?.canProceedToReview || navigating || updatingPoses}
+                className={`flex-[2] py-3.5 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                  validation?.canProceedToReview && !navigating && !updatingPoses
+                    ? "bg-[#0055FF] text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {navigating || updatingPoses ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" />처리 중...</>
+                ) : (
+                  <>포즈 선택 완료 ({safeSelectedCount}개)</>
+                )}
+              </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Proceed to Review Button (Fixed) */}
-      {validation && getTotalSelectedCount() > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-2xl z-50">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            {validation.globalMessage && (
-              <p className="text-center text-red-500 font-medium mb-3">
-                {validation.globalMessage}
-              </p>
-            )}
-            <button
-              onClick={handleProceedToReview}
-              disabled={!validation.canProceedToReview}
-              className={`w-full py-4 rounded-3xl font-bold text-lg transition-all ${
-                validation.canProceedToReview
-                  ? "bg-skyblue text-white hover:bg-opacity-90 shadow-lg"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
-              }`}
-            >
-              선택 내역 확인하기 ({getTotalSelectedCount()}개)
-            </button>
-          </div>
-        </div>
-      )}
+      {/* 인원 선택은 투어 상세 페이지에서 처리 → spots에서는 GuestSheet 없음 */}
     </div>
   );
 }
@@ -464,7 +644,7 @@ export default function SpotsPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-skyblue border-solid"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#0055FF] border-solid"></div>
       </div>
     }>
       <SpotsContent />
