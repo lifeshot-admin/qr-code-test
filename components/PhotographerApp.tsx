@@ -111,6 +111,17 @@ export function PhotographerApp() {
   const [sessionCount, setSessionCount] = useState(0);
   const [shootStarted, setShootStarted] = useState(false);
 
+  // QR 인식 확인 모달 상태
+  const [showQrConfirmModal, setShowQrConfirmModal] = useState(false);
+  const [qrReservationInfo, setQrReservationInfo] = useState<{
+    id: string;
+    nickname: string;
+    tourName: string;
+    tourThumbnail: string;
+    scheduleTime: string;
+  } | null>(null);
+  const [qrInfoLoading, setQrInfoLoading] = useState(false);
+
   useEffect(() => {
     setSessionCount(getSessionCount());
   }, []);
@@ -136,21 +147,59 @@ export function PhotographerApp() {
     [router]
   );
 
-  // ==================== QR 스캔 성공 → 바로 인증사진 촬영 ====================
+  // ==================== QR 스캔 성공 → 예약 정보 확인 모달 ====================
 
   const handleQRSuccess = useCallback(
-    (id: string, _rawUrl: string) => {
+    async (id: string, _rawUrl: string) => {
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       console.log("🚀 [QR 스캔 성공]");
       console.log(`📋 원본 QR 데이터: ${_rawUrl}`);
       console.log(`📋 추출된 pose_reservation_id: ${id}`);
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
       setReservationId(id);
-      // QR 인식 → 0.1초 만에 인증사진 촬영(auth)으로 즉시 이동
-      setTimeout(() => goTo("auth", id), 100);
+      setQrInfoLoading(true);
+      setShowQrConfirmModal(true);
+
+      // 예약 정보 조회 시도 (실패해도 모달은 표시)
+      try {
+        const res = await fetch(`/api/bubble/reservation/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          const info = data.data || data;
+          setQrReservationInfo({
+            id,
+            nickname: info.nickname || info.user_nickname || info._user_nickname || "고객님",
+            tourName: info.tour_name || info.tourName || "투어",
+            tourThumbnail: info.tour_thumbnail || info.tourThumbnail || "",
+            scheduleTime: info.schedule_time || info.tour_date || info.scheduleTime || "",
+          });
+        } else {
+          setQrReservationInfo({ id, nickname: "고객님", tourName: "투어", tourThumbnail: "", scheduleTime: "" });
+        }
+      } catch {
+        setQrReservationInfo({ id, nickname: "고객님", tourName: "투어", tourThumbnail: "", scheduleTime: "" });
+      } finally {
+        setQrInfoLoading(false);
+      }
     },
-    [goTo]
+    []
   );
+
+  // QR 확인 모달 → 인증사진 촬영 진행
+  const confirmQrAndProceed = useCallback(() => {
+    setShowQrConfirmModal(false);
+    if (reservationId) {
+      goTo("auth", reservationId);
+    }
+  }, [reservationId, goTo]);
+
+  // QR 확인 모달 → 취소 (다시 스캔)
+  const cancelQrConfirm = useCallback(() => {
+    setShowQrConfirmModal(false);
+    setQrReservationInfo(null);
+    setReservationId(null);
+  }, []);
 
   const handleManualCapture = useCallback(
     (id: string, _imageDataUrl: string) => {
@@ -235,12 +284,23 @@ export function PhotographerApp() {
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       goTo("shoot", reservationId);
     } catch (err: any) {
+      const errMsg = err?.message || String(err);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       console.error("❌ [업로드 에러] catch 블록 진입");
-      console.error(`📋 에러 메시지: ${err?.message || err}`);
+      console.error(`📋 에러 메시지: ${errMsg}`);
       console.error(`📋 에러 스택:`, err?.stack || "(스택 없음)");
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      alert("저장에 실패했습니다. 설정을 확인해 주세요.");
+
+      // 사용자에게 구체적 에러 메시지 표시
+      if (errMsg.includes("502") || errMsg.includes("Bubble")) {
+        alert("Bubble API 서버 연결 실패.\n환경 변수(BUBBLE_API_TOKEN, BUBBLE_API_BASE_URL)를 확인해주세요.");
+      } else if (errMsg.includes("413") || errMsg.includes("too large")) {
+        alert("이미지 파일이 너무 큽니다.\n다시 촬영해 주세요.");
+      } else if (errMsg.includes("500")) {
+        alert(`서버 내부 오류가 발생했습니다.\n(${errMsg.substring(0, 80)})`);
+      } else {
+        alert(`저장에 실패했습니다.\n${errMsg.substring(0, 100)}`);
+      }
       setShowUploadModal(true);
     }
   }, [reservationId, authPhotoDataUrl, goTo]);
@@ -314,12 +374,13 @@ export function PhotographerApp() {
       setShootStarted(false);
       goTo("scan");
     } catch (err: any) {
+      const errMsg = err?.message || String(err);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       console.error("❌ [촬영 완료] 에러 발생");
-      console.error(`📋 에러: ${err?.message || err}`);
+      console.error(`📋 에러: ${errMsg}`);
       console.error(`📋 스택:`, err?.stack || "(스택 없음)");
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      alert("저장에 실패했습니다. 설정을 확인해 주세요.");
+      alert(`촬영 완료 저장에 실패했습니다.\n${errMsg.substring(0, 100)}`);
     }
   }, [reservationId, goTo]);
 
@@ -327,6 +388,65 @@ export function PhotographerApp() {
 
   const modals = (
     <>
+      {/* QR 인식 확인 모달 */}
+      {showQrConfirmModal && (
+        <div className="fixed inset-0 bg-black/95 z-[9999] flex items-center justify-center flex-col p-5">
+          <div className="bg-surface p-6 rounded-2xl max-w-[90%] w-full text-center">
+            {qrInfoLoading ? (
+              <div className="py-8 flex flex-col items-center gap-3">
+                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-white text-sm">예약 정보 확인 중...</p>
+              </div>
+            ) : (
+              <>
+                <div className="text-5xl mb-4">✅</div>
+                <h3 className="text-xl font-bold text-white mb-2">
+                  {qrReservationInfo?.nickname || "고객"}님이<br />인식되었습니다
+                </h3>
+
+                {/* 투어 정보 */}
+                <div className="bg-white/10 rounded-xl p-4 mt-4 mb-5">
+                  {qrReservationInfo?.tourThumbnail && (
+                    <img
+                      src={qrReservationInfo.tourThumbnail}
+                      alt="투어 썸네일"
+                      className="w-full h-32 object-cover rounded-lg mb-3"
+                    />
+                  )}
+                  {qrReservationInfo?.tourName && (
+                    <p className="text-white font-semibold text-sm mb-1">{qrReservationInfo.tourName}</p>
+                  )}
+                  {qrReservationInfo?.scheduleTime && (
+                    <p className="text-muted text-xs">{qrReservationInfo.scheduleTime}</p>
+                  )}
+                  <p className="text-muted text-xs mt-1 font-mono break-all">
+                    ID: {qrReservationInfo?.id?.substring(0, 20)}...
+                  </p>
+                </div>
+
+                {/* 버튼: 취소(좌) | 인증사진 촬영(우) */}
+                <div className="flex gap-2.5">
+                  <button
+                    type="button"
+                    onClick={cancelQrConfirm}
+                    className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-border text-white"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmQrAndProceed}
+                    className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-accent text-white"
+                  >
+                    📸 인증사진 촬영
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {showUploadModal && (
         <div className="fixed inset-0 bg-black/95 z-[9999] flex items-center justify-center flex-col p-5">
           <div className="bg-surface p-6 rounded-2xl max-w-[90%] text-center">
@@ -345,17 +465,17 @@ export function PhotographerApp() {
             <div className="flex gap-2.5 mt-4">
               <button
                 type="button"
-                onClick={confirmUpload}
-                className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-accent text-white"
-              >
-                네, 업로드
-              </button>
-              <button
-                type="button"
                 onClick={rejectUpload}
                 className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-border text-white"
               >
                 다시 촬영
+              </button>
+              <button
+                type="button"
+                onClick={confirmUpload}
+                className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-accent text-white"
+              >
+                네, 업로드
               </button>
             </div>
           </div>
@@ -370,17 +490,17 @@ export function PhotographerApp() {
             <div className="flex gap-2.5">
               <button
                 type="button"
-                onClick={confirmRetake}
-                className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-accent text-white"
-              >
-                네, 다시 촬영
-              </button>
-              <button
-                type="button"
                 onClick={() => setShowRetakeModal(false)}
                 className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-border text-white"
               >
                 취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmRetake}
+                className="flex-1 py-3.5 rounded-xl font-semibold text-base bg-accent text-white"
+              >
+                네, 다시 촬영
               </button>
             </div>
           </div>

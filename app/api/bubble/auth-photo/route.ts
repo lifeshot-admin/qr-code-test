@@ -27,6 +27,25 @@ export async function POST(request: NextRequest) {
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
   try {
+    // ── 0단계: 환경변수 유효성 체크 (Vercel 배포 시 누락 방지) ──
+    const bubbleBaseUrl = process.env.BUBBLE_API_BASE_URL;
+    const bubbleToken = process.env.BUBBLE_API_TOKEN;
+    const useVersionTest = process.env.BUBBLE_USE_VERSION_TEST;
+
+    console.log(`🔧 [ENV] BUBBLE_API_BASE_URL: ${bubbleBaseUrl ? "✅ 설정됨" : "❌ 누락!"}`);
+    console.log(`🔧 [ENV] BUBBLE_API_TOKEN: ${bubbleToken ? `✅ 설정됨 (${bubbleToken.substring(0, 8)}...)` : "❌ 누락!"}`);
+    console.log(`🔧 [ENV] BUBBLE_USE_VERSION_TEST: ${useVersionTest || "미설정 (기본값 사용)"}`);
+
+    if (!bubbleBaseUrl || !bubbleToken) {
+      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.error("❌ [ENV] 필수 환경변수 누락! Vercel Settings → Environment Variables 확인 필요");
+      console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+      return NextResponse.json(
+        { error: "Server configuration error", message: "BUBBLE_API_BASE_URL or BUBBLE_API_TOKEN not set" },
+        { status: 500 }
+      );
+    }
+
     // ── 1단계: 요청 바디 파싱 ──
     console.log("📥 [API] 요청 바디 파싱 중...");
     const body = await request.json();

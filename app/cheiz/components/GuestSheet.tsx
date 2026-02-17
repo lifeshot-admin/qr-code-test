@@ -17,6 +17,7 @@ export default function GuestSheet({ isOpen, onClose, onConfirm }: GuestSheetPro
   const [confirming, setConfirming] = useState(false);
 
   const handleConfirm = () => {
+    console.log(`🚀 [GuestSheet] handleConfirm 호출: adults=${adults}`);
     setConfirming(true);
     onConfirm({ adults, children: 0 });
   };

@@ -17,7 +17,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession, getSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Pagination, Autoplay } from "swiper/modules";
@@ -35,7 +35,6 @@ import { getAppLanguage } from "@/lib/locale";
 import { formatKSTDateParts, formatKST24Time } from "@/lib/utils";
 import { useReservationStore, type GuestCount } from "@/lib/reservation-store";
 import GuestSheet from "@/app/cheiz/components/GuestSheet";
-import PhotoCountBanner from "@/app/cheiz/components/PhotoCountBanner";
 
 import "swiper/css";
 import "swiper/css/pagination";
@@ -67,6 +66,33 @@ export default function TourDetailPage() {
   const urlLocale = (params.locale as string) || "ko";
   const tourId = Number(rawId);
 
+  // ━━━ [진단 로그] 세션 상태 실시간 추적 + 직접 API 비교 ━━━
+  useEffect(() => {
+    console.log(`[TourDetail] 🔐 sessionStatus: ${sessionStatus}, session 존재: ${!!session}`);
+    if (session?.user) {
+      console.log(`[TourDetail] 🔐 role="${session.user.role}", email="${session.user.email}"`);
+    }
+    if ((session as any)?.error) {
+      console.warn(`[TourDetail] ⚠️ session.error: ${(session as any).error}`);
+    }
+
+    // unauthenticated 고정 시 원인 추적: /api/auth/session 직접 호출
+    if (sessionStatus === "unauthenticated") {
+      const hasCookie = document.cookie.includes("next-auth.session-token");
+      console.warn(`[TourDetail] 🍪 쿠키 존재: ${hasCookie} (document.cookie 내 session-token)`);
+
+      fetch("/api/auth/session", { credentials: "include" })
+        .then(r => r.json())
+        .then(d => {
+          console.log("[TourDetail] 📡 /api/auth/session 직접 응답:", JSON.stringify(d).substring(0, 200));
+          if (d?.user) {
+            console.error("[TourDetail] ❌ API는 세션 있음인데 useSession은 unauthenticated → SessionProvider 동기화 실패!");
+          }
+        })
+        .catch(e => console.error("[TourDetail] ❌ session API fetch 실패:", e));
+    }
+  }, [sessionStatus, session]);
+
   // ✅ 글로벌 언어 결정 (유저 lan > URL locale > 브라우저 > "ko")
   const appLang = getAppLanguage({
     userLan: session?.user?.lan,
@@ -86,6 +112,30 @@ export default function TourDetailPage() {
   // ✅ GuestSheet (바텀 시트) 상태
   const [guestSheetOpen, setGuestSheetOpen] = useState(false);
   const { setGuestCount, setTourId: setStoreTourId, setTour: setStoreTour, setScheduleId: setStoreScheduleId } = useReservationStore();
+
+  // ✅ 토스트 알림 상태
+  const [toast, setToast] = useState<string | null>(null);
+
+  // ✅ 로그인 후 자동 점프 (Auto-Forward)
+  // 예약 버튼 → 로그인 → 돌아왔을 때 자동으로 GuestSheet 열기
+  useEffect(() => {
+    if (sessionStatus === "authenticated" && session) {
+      const pending = sessionStorage.getItem("pendingReserveAction");
+      if (pending) {
+        sessionStorage.removeItem("pendingReserveAction");
+        console.log("🎯 [AutoForward] 로그인 성공 → GuestSheet 자동 열기");
+
+        // 토스트 표시
+        setToast("로그인 성공! 예약을 계속 진행합니다.");
+        setTimeout(() => setToast(null), 3000);
+
+        // 일정이 선택되어 있으면 바로 GuestSheet 열기
+        if (selectedSchedule) {
+          setTimeout(() => setGuestSheetOpen(true), 500);
+        }
+      }
+    }
+  }, [sessionStatus, session, selectedSchedule]);
 
   // ───── Data Fetching ─────
   useEffect(() => {
@@ -141,21 +191,84 @@ export default function TourDetailPage() {
 
   const canReserve = !!selectedSchedule;
 
-  const handleReserve = useCallback(() => {
+  const handleReserve = useCallback(async () => {
+    // 1. 브라우저 콘솔에 현재 상태 출력 (F12에서 확인용)
+    console.log("🚀 [RESERVE_CHECK]", {
+      status: sessionStatus,
+      user: session?.user,
+      role: session?.user?.role,
+      canReserve,
+    });
+
     if (!canReserve || !selectedSchedule) return;
-    // 세션 로딩 중이면 잠시 기다림 (로그인 직후 돌아왔을 때 방지)
-    if (sessionStatus === "loading") return;
-    // 미로그인 시에만 로그인 페이지로 이동
-    if (sessionStatus === "unauthenticated") {
-      router.replace(`/auth/signin?callbackUrl=/${urlLocale}/tours/${tourId}`);
+
+    // 2. 로딩 중일 때는 아무것도 하지 않음 (리다이렉트 방지 핵심)
+    if (sessionStatus === "loading") {
+      console.warn("⏳ [RESERVE_CHECK] 세션 로딩 중 — 리다이렉트 차단, 대기");
       return;
     }
-    // GuestSheet 바텀 시트 열기
+
+    // 3. useSession이 unauthenticated라고 해도 getSession()으로 한 번 더 확인
+    //    (SessionProvider 동기화 실패 방어)
+    if (sessionStatus === "unauthenticated" || !session) {
+      console.warn("⚠️ [RESERVE_CHECK] useSession=unauthenticated → getSession()으로 재확인 중...");
+      const freshSession = await getSession();
+      console.log("🔄 [RESERVE_CHECK] getSession() 결과:", {
+        hasSession: !!freshSession,
+        email: freshSession?.user?.email || "없음",
+        role: (freshSession?.user as any)?.role || "없음",
+      });
+
+      if (freshSession?.user) {
+        // getSession()에서는 세션 발견 → SessionProvider 동기화 실패였음
+        console.log("✅ [RESERVE_CHECK] getSession()으로 세션 확인 → GuestSheet 열기");
+        setGuestSheetOpen(true);
+        return;
+      }
+
+      // getSession()에서도 세션 없음 → 진짜 미인증
+      console.error("❌ [RESERVE_CHECK] 확실히 미인증 → 로그인 페이지로 리다이렉트");
+      // 로그인 후 자동 복귀를 위한 플래그 저장
+      sessionStorage.setItem("pendingReserveAction", "true");
+      const callbackUrl = encodeURIComponent(window.location.pathname);
+      router.push(`/auth/signin?callbackUrl=${callbackUrl}`);
+      return;
+    }
+
+    // 4. 역할(Role) 로그 — Java 백엔드가 ROLE_USER / User 어느 쪽을 주는지 확인
+    console.log(`✅ [RESERVE_CHECK] 인증 통과 → role="${session.user?.role}", GuestSheet 열기`);
     setGuestSheetOpen(true);
-  }, [canReserve, selectedSchedule, sessionStatus, router, urlLocale, tourId]);
+  }, [canReserve, selectedSchedule, sessionStatus, session, router]);
 
   // GuestSheet 확정 → Zustand에 투어 메타데이터 + scheduleId 저장 → spots 페이지 이동
-  const handleGuestConfirm = useCallback((count: GuestCount) => {
+  const handleGuestConfirm = useCallback(async (count: GuestCount) => {
+    console.log("🚀 [GUEST_CONFIRM]", {
+      adults: count.adults,
+      status: sessionStatus,
+      role: session?.user?.role,
+      hasSession: !!session,
+    });
+
+    // 세션 이중 체크 — GuestSheet 열려있는 동안 세션이 풀렸을 가능성 방어
+    if (sessionStatus === "loading") {
+      console.warn("⏳ [GUEST_CONFIRM] 세션 로딩 중 — 대기");
+      return;
+    }
+
+    // useSession이 unauthenticated → getSession()으로 재확인
+    if (sessionStatus === "unauthenticated" || !session) {
+      console.warn("⚠️ [GUEST_CONFIRM] useSession=unauthenticated → getSession()으로 재확인...");
+      const freshSession = await getSession();
+      if (!freshSession?.user) {
+        console.error("❌ [GUEST_CONFIRM] 확실히 미인증 → 로그인 리다이렉트");
+        setGuestSheetOpen(false);
+        const callbackUrl = encodeURIComponent(window.location.pathname);
+        router.push(`/auth/signin?callbackUrl=${callbackUrl}`);
+        return;
+      }
+      console.log("✅ [GUEST_CONFIRM] getSession()으로 세션 확인 → 예약 진행");
+    }
+
     setGuestCount(count);
     setGuestSheetOpen(false);
 
@@ -164,7 +277,7 @@ export default function TourDetailPage() {
     // 투어 메타데이터를 Zustand에 저장 (checkout에서 사용)
     const locationLabel = [tour.location, tour.locationDetail].filter(Boolean).join(" / ");
     setStoreTourId(tourId);
-    setStoreScheduleId(selectedSchedule.id); // ✅ Swagger 필수값: scheduleId 저장
+    setStoreScheduleId(selectedSchedule.id);
     setStoreTour({
       _id: String(tourId),
       tour_Id: tourId,
@@ -179,8 +292,10 @@ export default function TourDetailPage() {
       tour_id: String(tourId),
       schedule_id: String(selectedSchedule.id),
     });
-    router.push(`/cheiz/reserve/spots?${p.toString()}`);
-  }, [tour, selectedSchedule, tourId, setGuestCount, setStoreTourId, setStoreScheduleId, setStoreTour, router]);
+    const targetUrl = `/cheiz/reserve/spots?${p.toString()}`;
+    console.log(`✅ [GUEST_CONFIRM] 인증 확인 → 이동: ${targetUrl}`);
+    router.push(targetUrl);
+  }, [tour, selectedSchedule, tourId, sessionStatus, session, setGuestCount, setGuestSheetOpen, setStoreTourId, setStoreScheduleId, setStoreTour, router]);
 
   // ───── Loading — 인라인 스켈레톤 (loading.tsx와 동일 구조) ─────
   if (loading) return (
@@ -314,6 +429,24 @@ export default function TourDetailPage() {
   // ===================================================================
   return (
     <div className="min-h-screen bg-white pb-28">
+      {/* ═══ 토스트 알림 ═══ */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -40 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="fixed top-[env(safe-area-inset-top)] left-0 right-0 z-50 flex justify-center pt-4 px-5 pointer-events-none"
+          >
+            <div className="bg-[#1A1A1A] text-white text-sm font-semibold px-5 py-3 rounded-xl shadow-lg flex items-center gap-2">
+              <span className="text-green-400">✓</span>
+              {toast}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ═══ Floating Header ═══ */}
       <div className="fixed top-0 left-0 right-0 z-30 pointer-events-none">
         <div className="max-w-md mx-auto flex items-center justify-between px-4 pt-[env(safe-area-inset-top)] py-3">
@@ -370,11 +503,6 @@ export default function TourDetailPage() {
             <p className="text-sm text-red-600 font-medium">현재 이 투어는 마감되었습니다</p>
           </div>
         )}
-      </div>
-
-      {/* ═══ 사진 장수 통계 배너 ═══ */}
-      <div className="max-w-md mx-auto px-5 mt-4">
-        <PhotoCountBanner tourId={tour.id} />
       </div>
 
       {/* ═══ Divider ═══ */}
