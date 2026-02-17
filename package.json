@@ -13,6 +13,7 @@
     "@sendgrid/mail": "^8.1.6",
     "@stripe/stripe-js": "^8.7.0",
     "bcryptjs": "^3.0.3",
+    "browser-image-compression": "^2.0.2",
     "framer-motion": "^12.34.0",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.564.0",
@@ -23,6 +24,7 @@
     "react-compare-image": "^3.5.14",
     "react-compare-slider": "^3.1.0",
     "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.6.0",
     "stripe": "^20.3.1",
     "swiper": "^12.1.1",
     "zustand": "^5.0.11"

@@ -116,6 +116,9 @@ export default function TourDetailPage() {
   // ✅ 토스트 알림 상태
   const [toast, setToast] = useState<string | null>(null);
 
+  // ✅ 중복 예약 방지
+  const [alreadyReserved, setAlreadyReserved] = useState(false);
+
   // ✅ 로그인 후 자동 점프 (Auto-Forward)
   // 예약 버튼 → 로그인 → 돌아왔을 때 자동으로 GuestSheet 열기
   useEffect(() => {
@@ -174,6 +177,26 @@ export default function TourDetailPage() {
 
     if (!isNaN(tourId)) loadData();
   }, [tourId, appLang]);
+
+  // ───── 중복 예약 체크 ─────
+  useEffect(() => {
+    if (sessionStatus !== "authenticated" || !session?.user?.id || isNaN(tourId)) return;
+    async function checkDuplicate() {
+      try {
+        const res = await fetch(
+          `/api/bubble/check-duplicate-reservation?userId=${session!.user!.id}&tourId=${tourId}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.exists) {
+            setAlreadyReserved(true);
+            console.log("[TourDetail] 이미 예약된 투어입니다.");
+          }
+        }
+      } catch { /* 무시 — 예약은 계속 가능 */ }
+    }
+    checkDuplicate();
+  }, [sessionStatus, session, tourId]);
 
   // ───── Fetch Reviews (Bubble API) ─────
   useEffect(() => {
@@ -753,15 +776,16 @@ export default function TourDetailPage() {
             )}
           </div>
           <motion.button
-            whileTap={canReserve ? { scale: 0.97 } : undefined}
+            whileTap={canReserve && !alreadyReserved ? { scale: 0.97 } : undefined}
             onClick={handleReserve}
-            disabled={!canReserve || tour.isClosed || sessionStatus === "loading"}
+            disabled={!canReserve || tour.isClosed || sessionStatus === "loading" || alreadyReserved}
             className={`px-8 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200 flex-shrink-0 flex items-center gap-2
-              ${canReserve && !tour.isClosed && sessionStatus !== "loading" ? "bg-[#0055FF] text-white shadow-sm active:bg-[#0044CC]" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
+              ${alreadyReserved ? "bg-gray-300 text-gray-500 cursor-not-allowed" :
+              canReserve && !tour.isClosed && sessionStatus !== "loading" ? "bg-[#0055FF] text-white shadow-sm active:bg-[#0044CC]" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
           >
             {sessionStatus === "loading" ? (
               <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>확인 중</>
-            ) : tour.isClosed ? "마감됨" : "예약하기"}
+            ) : alreadyReserved ? "이미 예약된 투어입니다" : tour.isClosed ? "마감됨" : "예약하기"}
           </motion.button>
         </div>
         <div className="h-[env(safe-area-inset-bottom)]" />

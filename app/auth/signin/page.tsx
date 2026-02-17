@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { checkEmail } from "@/lib/api-client";
 import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { ChevronRight } from "lucide-react";
+import toast from "react-hot-toast";
 
 // ─── useSearchParams를 Suspense 내부에서 사용하기 위한 래퍼 ───
 function SignInContent() {
@@ -16,9 +17,10 @@ function SignInContent() {
   const callbackUrl = searchParams.get("callbackUrl") || "/";
   const { data: session, status: sessionStatus } = useSession();
 
-  // ✅ 이미 로그인된 유저는 즉시 callbackUrl로 보내기
+  // ✅ 이미 로그인된 유저는 즉시 callbackUrl로 보내기 (카카오 등 외부 리다이렉트 후 복귀)
   useEffect(() => {
     if (sessionStatus === "authenticated" && session) {
+      toast.success("로그인이 성공적으로 되었습니다! 🎉");
       router.replace(callbackUrl);
     }
   }, [sessionStatus, session, router, callbackUrl]);
@@ -54,6 +56,7 @@ function SignInContent() {
         if ((freshSession as any)?.accessToken) {
           sessionStorage.setItem("auth_token", (freshSession as any).accessToken);
         }
+        toast.success("로그인이 성공적으로 되었습니다! 🎉");
         router.replace(callbackUrl);
       }
     } catch {
@@ -125,6 +128,7 @@ function SignInContent() {
         if ((freshSession as any)?.accessToken) {
           sessionStorage.setItem("auth_token", (freshSession as any).accessToken);
         }
+        toast.success("로그인이 성공적으로 되었습니다! 🎉");
         router.replace(callbackUrl);
       }
     } catch {

@@ -154,7 +154,7 @@ function TourCard({
             </div>
           )}
 
-          <p className="text-sm font-bold text-[#0055FF]">
+          <p className="text-sm font-medium text-gray-500 text-right">
             {fmtPrice(priceValue, currency)}
           </p>
         </div>

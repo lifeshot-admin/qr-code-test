@@ -5,8 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useState, useEffect, Suspense, useRef } from "react";
 import {
-  Copy,
-  Check,
   Camera,
   Plane,
   Calendar,
@@ -55,7 +53,6 @@ function SuccessContent() {
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState("");
-  const [copied, setCopied] = useState(false);
   const processedRef = useRef(false);
 
   // ✅ clearAll() 이후에도 유지되는 캡처된 요약 정보
@@ -361,14 +358,7 @@ function SuccessContent() {
     }
   };
 
-  const handleCopy = () => {
-    const textToCopy = reservationCode || reservationId || "";
-    if (textToCopy) {
-      navigator.clipboard.writeText(textToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  // handleCopy 제거됨 — 간소화된 UI
 
   // ✅ 캡처된 요약 우선, fallback으로 store 값 (hydration-safe)
   const safePoseCount = capturedSummary?.poseCount ?? (hasMounted ? getTotalSelectedCount() : 0);
@@ -474,22 +464,14 @@ function SuccessContent() {
             </motion.div>
           )}
 
-          {/* 6자리 예약 코드 (대형 강조) */}
+          {/* 6자리 예약 코드 */}
           {reservationCode && (
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }}
               className="bg-gradient-to-r from-[#0055FF]/10 to-[#7B2BFF]/10 border-2 border-[#0055FF]/20 rounded-2xl p-5 mb-4 text-center">
               <p className="text-xs text-gray-500 font-semibold mb-2 tracking-wide uppercase">예약 번호</p>
-              <div className="flex items-center justify-center gap-3">
-                <span className="text-4xl font-extrabold tracking-[0.3em] text-[#0055FF] font-mono">
-                  {reservationCode}
-                </span>
-                <button onClick={handleCopy} className="p-2 rounded-xl hover:bg-white/80 transition-colors flex-shrink-0 active:scale-90">
-                  {copied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-[#0055FF]" />}
-                </button>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-2">
-                촬영 당일 포토그래퍼에게 이 번호를 알려주세요
-              </p>
+              <span className="text-4xl font-extrabold tracking-[0.3em] text-[#0055FF] font-mono">
+                {reservationCode}
+              </span>
             </motion.div>
           )}
 

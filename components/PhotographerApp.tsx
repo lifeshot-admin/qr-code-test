@@ -5,47 +5,34 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CameraScanner, type ScanMode } from "@/components/CameraScanner";
 import type { PoseGuideItem } from "@/lib/bubble-api";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
+import imageCompression from "browser-image-compression";
 
 const SESSION_KEY = "chiiz_session_count";
 
 // ==================== 이미지 압축 유틸리티 ====================
 
-const MAX_WIDTH = 2000;
-const INITIAL_QUALITY = 0.7;
-const TARGET_SIZE_BYTES = 3 * 1024 * 1024;
-
 async function compressImage(dataUrl: string): Promise<string> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const file = new File([blob], "photo.jpg", { type: blob.type || "image/jpeg" });
+
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 1,
+    maxWidthOrHeight: 1280,
+    useWebWorker: true,
+    fileType: "image/jpeg",
+  });
+
+  console.log(
+    `📸 [압축] 원본=${(file.size / 1024 / 1024).toFixed(2)}MB → ` +
+    `결과=${(compressed.size / 1024 / 1024).toFixed(2)}MB`
+  );
+
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        let { width, height } = img;
-        if (width > MAX_WIDTH) {
-          const ratio = MAX_WIDTH / width;
-          width = MAX_WIDTH;
-          height = Math.round(height * ratio);
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas context 생성 실패")); return; }
-        ctx.drawImage(img, 0, 0, width, height);
-        let quality = INITIAL_QUALITY;
-        let result = canvas.toDataURL("image/jpeg", quality);
-        while (result.length > TARGET_SIZE_BYTES * 1.37 && quality > 0.1) {
-          quality -= 0.1;
-          result = canvas.toDataURL("image/jpeg", quality);
-        }
-        console.log(
-          `📸 [압축] ${img.width}x${img.height} → ${width}x${height}, ` +
-          `품질=${quality.toFixed(1)}, 크기≈${(result.length / 1024 / 1024).toFixed(2)}MB`
-        );
-        resolve(result);
-      } catch (err) { reject(err); }
-    };
-    img.onerror = () => reject(new Error("이미지 로드 실패"));
-    img.src = dataUrl;
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("압축 이미지 변환 실패"));
+    reader.readAsDataURL(compressed);
   });
 }
 
@@ -226,6 +213,7 @@ export function PhotographerApp() {
     tourName: string;
     tourThumbnail: string;
     scheduleTime: string;
+    reservationCode: string;
   } | null>(null);
   const [qrInfoLoading, setQrInfoLoading] = useState(false);
 
@@ -282,12 +270,13 @@ export function PhotographerApp() {
             tourName: info.tour_name || info.tourName || "투어",
             tourThumbnail: info.tour_thumbnail || info.tourThumbnail || "",
             scheduleTime: info.schedule_time || info.tour_date || info.scheduleTime || "",
+            reservationCode: info.Id || info.reservationCode || "",
           });
         } else {
-          setQrReservationInfo({ id, nickname: "고객님", tourName: "투어", tourThumbnail: "", scheduleTime: "" });
+          setQrReservationInfo({ id, nickname: "고객님", tourName: "투어", tourThumbnail: "", scheduleTime: "", reservationCode: "" });
         }
       } catch {
-        setQrReservationInfo({ id, nickname: "고객님", tourName: "투어", tourThumbnail: "", scheduleTime: "" });
+        setQrReservationInfo({ id, nickname: "고객님", tourName: "투어", tourThumbnail: "", scheduleTime: "", reservationCode: "" });
       } finally {
         setQrInfoLoading(false);
       }
@@ -481,6 +470,11 @@ export function PhotographerApp() {
                 <h3 className="text-xl font-bold text-white mb-2">
                   {qrReservationInfo?.nickname || "고객"}님이<br />인식되었습니다
                 </h3>
+                {qrReservationInfo?.reservationCode && (
+                  <p className="text-2xl font-extrabold tracking-[0.2em] text-[#00CFFF] font-mono mt-1">
+                    {qrReservationInfo.reservationCode}
+                  </p>
+                )}
                 <div className="bg-white/10 rounded-xl p-4 mt-4 mb-5">
                   {qrReservationInfo?.tourThumbnail && (
                     <img
@@ -495,9 +489,6 @@ export function PhotographerApp() {
                   {qrReservationInfo?.scheduleTime && (
                     <p className="text-muted text-xs">{qrReservationInfo.scheduleTime}</p>
                   )}
-                  <p className="text-muted text-xs mt-1 font-mono break-all">
-                    ID: {qrReservationInfo?.id?.substring(0, 20)}...
-                  </p>
                 </div>
                 <div className="flex gap-2.5">
                   <button type="button" onClick={cancelQrConfirm}

@@ -2,6 +2,7 @@
 
 import { SessionProvider, useSession } from "next-auth/react";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { Toaster } from "react-hot-toast";
 import { useEffect, useRef } from "react";
 
 /**
@@ -68,6 +69,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
         refetchOnWindowFocus={true}
       >
         <SessionGuard>{children}</SessionGuard>
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            duration: 3000,
+            style: {
+              background: "#F0F4FF",
+              color: "#1A1A1A",
+              borderRadius: "16px",
+              padding: "12px 20px",
+              fontSize: "14px",
+              fontWeight: 600,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+            },
+            success: {
+              iconTheme: {
+                primary: "#0055FF",
+                secondary: "#F0F4FF",
+              },
+            },
+          }}
+        />
       </SessionProvider>
     </GoogleOAuthProvider>
   );
