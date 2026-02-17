@@ -16,5 +16,5 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "app/_kimi-design"]
+  "exclude": ["node_modules", "app/_kimi-design", "app/_reference_app"]
 }
