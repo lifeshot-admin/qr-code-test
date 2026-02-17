@@ -17,7 +17,7 @@
  * - BUBBLE_USE_VERSION_TEST=false: 가상 성공만 반환, 운영 DB 보호.
  *
  * 최종 저장 흐름 ("다음 손님 보기" 클릭):
- * 1. updateAuthPhoto: PATCH .../obj/pose_reservation/{id} → { auth_photo } (사진 업데이트)
+ * 1. updateAuthPhoto: POST .../obj/auth_photo → { auth_photo, pose_reservation_Id } (새 레코드 생성)
  * 2. updateReservationStatus: PATCH .../obj/pose_reservation/{id} → { status: "Completed" }
  */
 
@@ -50,7 +50,7 @@ function getBaseUrl(): string {
 
 const BASE = getBaseUrl();
 
-/** (다른 mutation용 참고) true이면 일반적으로 전송 생략. updateAuthPhoto는 환경별 로직으로 별도 처리 */
+/** (다른 mutation용 참고) true이면 일반적으로 전송 생략. updateAuthPhoto(POST auth_photo)는 환경별 로직으로 별도 처리 */
 const SAFE_MODE =
   process.env.BUBBLE_API_SAFE_MODE === "true" ||
   process.env.BUBBLE_API_SAFE_MODE === "1";
@@ -165,12 +165,13 @@ function logApiCall(_method: string, _url: string, _hasBody: boolean = false): v
   // 로그 제거됨 — 에러 시에만 URL 출력하도록 개별 호출부에서 처리
 }
 
-/** pose_reservation 테이블: 예약 정보 (최신 스키마 2026.02.11) */
+/** pose_reservation 테이블: 예약 정보 (최신 스키마 2026.02.15) */
 export type PoseReservation = {
   _id: string;
   folder_Id?: number;        // 자바 백엔드 예약 ID
   tour_Id?: number;          // FK (tour 테이블)
   user_Id?: number;          // 유저 고유 ID
+  user_nickname?: string;    // 고객 닉네임 (예약 시 동기화 — Bubble 필드 존재 확인됨)
   status?: string;           // 예약 상태
   qrCodeUrl?: string;        // 현장 인증용 QR 주소
   "Created Date"?: string;
@@ -186,10 +187,11 @@ export type PoseCategory = {
   "Modified Date"?: string;
 };
 
-/** auth_photo 테이블: 인증샷 (최신 스키마 2026.02.11) */
+/** auth_photo 테이블: 인증샷 (최신 스키마 2026.02.15) */
 export type AuthPhoto = {
   _id: string;
-  pose_reservation_id?: string;  // ✅ 예약 연동 ID (text)
+  pose_reservation_id?: string;   // 예약 연동 ID (응답용)
+  pose_reservation_Id?: string;   // Bubble Link 필드 (대문자 I — POST 전송용)
   auth_photo?: string;            // 유저가 직접 촬영한 인증샷 (image)
   "Created Date"?: string;
   "Modified Date"?: string;
@@ -332,21 +334,23 @@ function normalizeAuthPhotoImage(value: string | undefined): string | undefined 
 }
 
 /**
- * 인증사진 업데이트 (pose_reservation 테이블의 auth_photo 필드)
- * PATCH /api/1.1/obj/pose_reservation/{pose_reservation_id}
+ * 인증사진 생성 (auth_photo 테이블에 새 레코드 POST)
+ * POST /api/1.1/obj/auth_photo
  * 
- * ✅ 변경 이력:
- *   기존: POST .../obj/auth_photo → 별도 테이블에 새 레코드 생성 (X)
- *   변경: PATCH .../obj/pose_reservation/{id} → 기존 예약 건에 사진 업데이트 (O)
+ * ✅ 변경 이력 (2026.02.15):
+ *   기존: PATCH .../obj/pose_reservation/{id} → 400 에러 (Unrecognized field: auth_photo)
+ *   변경: POST .../obj/auth_photo → auth_photo 테이블에 새 레코드 생성 (O)
  * 
- * Body에는 auth_photo 필드만 전송 (pose_reservation_id는 URL 경로에 포함):
+ * Body:
  * {
- *   "auth_photo": "data:image/jpeg;base64,/9j/4AAQ..."
+ *   "auth_photo": "data:image/jpeg;base64,/9j/4AAQ...",
+ *   "pose_reservation_Id": "1234567890x1234567890"
  * }
+ * ⚠️ 주의: pose_reservation_Id의 'I'는 대문자 (Bubble Link 필드 규칙)
  *
  * 환경별 동작:
  * - 운영(BUBBLE_USE_VERSION_TEST false/미설정): 가상 성공만 반환.
- * - 테스트(BUBBLE_USE_VERSION_TEST=true): 실제 PATCH 전송.
+ * - 테스트(BUBBLE_USE_VERSION_TEST=true): 실제 POST 전송.
  */
 export async function updateAuthPhoto(payload: {
   pose_reservation_id: string;
@@ -354,20 +358,21 @@ export async function updateAuthPhoto(payload: {
 }): Promise<AuthPhoto | null> {
   const cleanId = sanitizeReservationId(payload.pose_reservation_id);
   
-  // ✅ Body에는 auth_photo만! (pose_reservation_id는 URL 경로에 포함)
-  const body = {
+  // ✅ Body: auth_photo + pose_reservation_Id (대문자 I — Bubble Link 필드 규칙)
+  const body: Record<string, any> = {
     auth_photo: normalizeAuthPhotoImage(payload.auth_photo),
+    pose_reservation_Id: cleanId,
   };
 
   const isVersionTest = USE_VERSION_TEST;
 
   if (!isVersionTest) {
     console.log("[Bubble API] 운영 환경 - updateAuthPhoto 실제 전송 없음 (가상 성공만 반환)");
-    console.log(`📋 pose_reservation_id (URL경로): ${cleanId}`);
+    console.log(`📋 pose_reservation_Id: ${cleanId}`);
     console.log(`📷 auth_photo: ${body.auth_photo ? 'Present (base64 data)' : 'Missing'}`);
     
     const mock: AuthPhoto = {
-      _id: cleanId,
+      _id: `mock_${Date.now()}`,
       pose_reservation_id: cleanId,
     };
     return mock;
@@ -380,22 +385,22 @@ export async function updateAuthPhoto(payload: {
   }
 
   try {
-    // ✅ 핵심: PATCH .../obj/pose_reservation/{id}
-    const url = `${BASE}/pose_reservation/${cleanId}`;
+    // ✅ 핵심: POST .../obj/auth_photo (새 레코드 생성)
+    const url = `${BASE}/auth_photo`;
     
     console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("📤 [Bubble API] PATCH → pose_reservation 테이블에 auth_photo 업데이트");
+    console.log("📤 [Bubble API] POST → auth_photo 테이블에 새 레코드 생성");
     console.log(`📋 URL: ${url}`);
-    console.log(`📋 pose_reservation_id (경로): ${cleanId}`);
+    console.log(`📋 pose_reservation_Id (Body): ${cleanId}`);
     console.log(`📷 auth_photo: ${body.auth_photo ? `있음 (${(body.auth_photo.length / 1024 / 1024).toFixed(2)}MB, ${body.auth_photo.length} chars)` : '❌ 없음'}`);
     if (body.auth_photo) {
       console.log(`📷 base64 헤더(50자): ${body.auth_photo.substring(0, 50)}...`);
     }
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
-    logApiCall("PATCH", url, true);
+    logApiCall("POST", url, true);
     const res = await bubbleFetch(url, {
-      method: "PATCH",
+      method: "POST",
       headers: headers(),
       body: JSON.stringify(body),
     });
@@ -403,45 +408,44 @@ export async function updateAuthPhoto(payload: {
     if (!res.ok) {
       const errorText = await res.text();
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.error(`❌ [Bubble API] updateAuthPhoto 실패! HTTP ${res.status}`);
+      console.error(`❌ [Bubble API] auth_photo POST 실패! HTTP ${res.status}`);
       console.error(`📋 [Bubble API] 에러 응답 전문: ${errorText}`);
       console.error(`📋 [Bubble API] 요청 URL: ${url}`);
-      console.error(`📋 [Bubble API] pose_reservation_id: ${cleanId}`);
+      console.error(`📋 [Bubble API] pose_reservation_Id: ${cleanId}`);
       console.error(`📋 [Bubble API] auth_photo 전송 여부: ${body.auth_photo ? "있음" : "없음"}`);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
       throw new Error(`Bubble API Error ${res.status}: ${errorText}`);
     }
     
-    // ✅ Bubble 응답 전문 로깅
+    // ✅ Bubble POST 응답: 생성된 레코드의 id 반환
     const rawResponseText = await res.text();
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("📨 [Bubble API] PATCH 응답 전문 (Raw Response):");
+    console.log("📨 [Bubble API] POST auth_photo 응답 전문 (Raw Response):");
     console.log(rawResponseText);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    // PATCH 응답이 빈 경우도 성공 (Bubble은 PATCH 시 빈 응답 가능)
     if (!rawResponseText || rawResponseText.trim() === "") {
-      console.log("✅ [Bubble API] PATCH 성공! (빈 응답 = 정상)");
+      console.log("✅ [Bubble API] POST 성공! (빈 응답)");
       return {
-        _id: cleanId,
+        _id: `created_${Date.now()}`,
         pose_reservation_id: cleanId,
       };
     }
 
     const json = JSON.parse(rawResponseText);
-    const result = json?.response ?? json;
+    const createdId = json?.id || json?.response?.id || json?.response?._id;
 
-    console.log("✅ [Bubble API] pose_reservation 테이블 auth_photo 업데이트 성공!");
-    console.log(`📌 [Bubble API] _id: ${result?._id || cleanId}`);
-    console.log(`📋 [Bubble API] 응답 키 목록: [${Object.keys(result || {}).join(", ")}]`);
+    console.log("✅ [Bubble API] auth_photo 테이블 레코드 생성 성공!");
+    console.log(`📌 [Bubble API] 생성된 _id: ${createdId || "(응답에 없음)"}`);
+    console.log(`📋 [Bubble API] 응답 키 목록: [${Object.keys(json || {}).join(", ")}]`);
     
     return {
-      _id: result?._id || cleanId,
+      _id: createdId || `created_${Date.now()}`,
       pose_reservation_id: cleanId,
     };
   } catch (e) {
-    console.error("❌ updateAuthPhoto exception:", e);
+    console.error("❌ updateAuthPhoto (POST auth_photo) exception:", e);
     throw e;
   }
 }

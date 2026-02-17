@@ -12,11 +12,34 @@ export async function GET(
   if (!id) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
+
   const row = await getPoseReservation(id);
   if (!row) {
     return NextResponse.json(null, { status: 404 });
   }
-  return NextResponse.json(row);
+
+  // 닉네임 매핑 로깅 (포토그래퍼 QR 확인 모달에서 사용)
+  if (process.env.NODE_ENV === "development") {
+    console.log(`[Reservation/${id}] 조회 성공:`, {
+      user_nickname: row.user_nickname || "(없음)",
+      status: row.status || "(없음)",
+      user_Id: row.user_Id,
+      keys: Object.keys(row),
+    });
+  }
+
+  // 응답: Bubble 원본 데이터 + 닉네임 편의 매핑
+  // (tour_name 등은 Bubble 테이블에 없으므로 row에서 직접 꺼냄 — 없으면 빈 문자열)
+  const rawData = row as Record<string, any>;
+  return NextResponse.json({
+    data: {
+      ...row,
+      nickname: row.user_nickname || rawData.nickname || "고객님",
+      tour_name: rawData.tour_name || "",
+      tour_thumbnail: rawData.tour_thumbnail || "",
+      schedule_time: rawData.schedule_time || "",
+    },
+  });
 }
 
 /**

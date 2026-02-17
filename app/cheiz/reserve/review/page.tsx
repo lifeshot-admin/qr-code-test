@@ -402,6 +402,7 @@ function ReviewContent() {
         folder_Id: finalFolderId,
         tour_Id: tourId,
         user_Id: session.user.id,
+        user_nickname: session.user.nickname || session.user.name || "",
       };
       
       console.log(`${getTimestamp()} 📤 [STEP 1] Payload:`, step1Payload);

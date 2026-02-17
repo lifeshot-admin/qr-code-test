@@ -244,6 +244,7 @@ function SuccessContent() {
         folder_Id: finalFolderId,
         tour_Id: effectiveTourId,
         user_Id: userId,
+        user_nickname: session?.user?.nickname || session?.user?.name || "",
       };
       console.log(`[FOLDER_FLOW]   📤 STEP 1 Payload: ${JSON.stringify(step1Payload)}`);
 

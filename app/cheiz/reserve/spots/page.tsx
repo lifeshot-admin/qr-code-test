@@ -307,6 +307,7 @@ function SpotsContent() {
           folder_Id: folderId,
           tour_Id: safeTourId,
           user_Id: session?.user?.id,
+          user_nickname: session?.user?.nickname || session?.user?.name || "",
         }),
       });
 

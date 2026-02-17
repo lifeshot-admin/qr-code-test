@@ -6,17 +6,19 @@ export const maxDuration = 60; // 최대 60초 (타임아웃 방지)
 export const runtime = "nodejs"; // Node.js 런타임 사용 (body size 제한 완화)
 
 /**
- * POST: 기존 pose_reservation 레코드에 인증사진을 PATCH로 업데이트
+ * POST: auth_photo 테이블에 새 인증사진 레코드를 생성 (POST)
  * 
  * ✅ 흐름:
  *   클라이언트 → POST /api/bubble/auth-photo (이 라우트)
- *   이 라우트 → PATCH .../obj/pose_reservation/{id} (Bubble API)
+ *   이 라우트 → POST .../obj/auth_photo (Bubble API - 새 레코드 생성)
  * 
  * Body: { pose_reservation_id: string, auth_photo: string }
  *   - pose_reservation_id: Bubble ID (숫자x숫자 패턴)
  *   - auth_photo: base64 인코딩된 이미지 데이터
  * 
- * Bubble API에는 auth_photo 필드만 body로 전송 (ID는 URL 경로에 포함)
+ * Bubble API Body:
+ *   - auth_photo: 이미지 데이터
+ *   - pose_reservation_Id: 예약 ID (대문자 I — Bubble Link 필드 규칙)
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -101,9 +103,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── 3단계: Bubble API 호출 (PATCH pose_reservation/{id}) ──
+    // ── 3단계: Bubble API 호출 (POST auth_photo — 새 레코드 생성) ──
     try {
-      console.log("🚀 [API] Bubble API 호출 시작 → PATCH pose_reservation/" + finalId);
+      console.log("🚀 [API] Bubble API 호출 시작 → POST auth_photo (pose_reservation_Id: " + finalId + ")");
       const bubbleStartTime = Date.now();
 
       const result = await updateAuthPhoto({
@@ -130,8 +132,8 @@ export async function POST(request: NextRequest) {
       };
 
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("✅ [API] 인증사진 PATCH 성공!");
-      console.log(`📌 [API] pose_reservation_id: ${finalId}`);
+      console.log("✅ [API] 인증사진 POST 성공! (auth_photo 테이블에 레코드 생성)");
+      console.log(`📌 [API] pose_reservation_Id: ${finalId}`);
       console.log(`⏱️ [API] 총 처리 시간: ${Date.now() - startTime}ms`);
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
       return NextResponse.json(lightweightResponse);

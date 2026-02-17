@@ -155,6 +155,7 @@ function SuccessContent() {
           folder_Id: finalFolderId,
           tour_Id: effectiveTourId,
           user_Id: userId,
+          user_nickname: session?.user?.nickname || session?.user?.name || "",
         }),
       });
 
