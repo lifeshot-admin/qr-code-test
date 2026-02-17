@@ -35,6 +35,7 @@ function SuccessContent() {
 
   const [phase, setPhase] = useState<"processing" | "success" | "error">("processing");
   const [reservationId, setReservationId] = useState<string | null>(null);
+  const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState("");
   const processedRef = useRef(false);
@@ -170,7 +171,9 @@ function SuccessContent() {
       }
 
       const bubbleReservationId = step1Data.reservation_id;
-      console.log(`[CHECKOUT_SUCCESS] ✅ [STEP 1] Bubble ID: ${bubbleReservationId}`);
+      const bubbleReservationCode = step1Data.reservation_code || "";
+      console.log(`[CHECKOUT_SUCCESS] ✅ [STEP 1] Bubble ID: ${bubbleReservationId} | 예약코드: ${bubbleReservationCode}`);
+      setReservationCode(bubbleReservationCode);
 
       // ━━━ STEP 2: 버블 reserved_pose 생성 ━━━
       const selectedPoses: any[] = [];
@@ -327,12 +330,15 @@ function SuccessContent() {
           </div>
         )}
 
-        {/* Reservation ID */}
-        {reservationId && (
-          <div className="bg-[#0055FF]/5 rounded-xl p-3 mb-6">
-            <p className="text-[10px] text-gray-400 mb-0.5">예약 번호</p>
-            <p className="text-xs font-mono font-bold text-gray-700 break-all">
-              {reservationId}
+        {/* 6자리 예약 코드 */}
+        {reservationCode && (
+          <div className="bg-gradient-to-r from-[#0055FF]/10 to-[#7B2BFF]/10 border-2 border-[#0055FF]/20 rounded-2xl p-5 mb-6 text-center">
+            <p className="text-xs text-gray-500 font-semibold mb-2 tracking-wide uppercase">예약 번호</p>
+            <span className="text-4xl font-extrabold tracking-[0.3em] text-[#0055FF] font-mono">
+              {reservationCode}
+            </span>
+            <p className="text-[11px] text-gray-400 mt-2">
+              촬영 당일 포토그래퍼에게 이 번호를 알려주세요
             </p>
           </div>
         )}

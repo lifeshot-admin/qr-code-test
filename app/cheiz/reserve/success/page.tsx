@@ -52,6 +52,7 @@ function SuccessContent() {
     "processing"
   );
   const [reservationId, setReservationId] = useState<string | null>(null);
+  const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -270,7 +271,9 @@ function SuccessContent() {
       }
 
       const bubbleReservationId = step1Data.reservation_id;
-      console.log(`[FOLDER_FLOW] ✅ [STEP 1] Bubble Reservation ID: ${bubbleReservationId}`);
+      const bubbleReservationCode = step1Data.reservation_code || "";
+      console.log(`[FOLDER_FLOW] ✅ [STEP 1] Bubble Reservation ID: ${bubbleReservationId} | 예약코드: ${bubbleReservationCode}`);
+      setReservationCode(bubbleReservationCode);
 
       // ━━━ STEP 2: reserved_pose 생성 (Bubble) ━━━
       console.log("[FOLDER_FLOW] 🏰 [STEP 2] reserved_pose 레코드 생성");
@@ -359,8 +362,9 @@ function SuccessContent() {
   };
 
   const handleCopy = () => {
-    if (reservationId) {
-      navigator.clipboard.writeText(reservationId);
+    const textToCopy = reservationCode || reservationId || "";
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -470,16 +474,22 @@ function SuccessContent() {
             </motion.div>
           )}
 
-          {/* Reservation ID */}
-          {reservationId && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }} className="bg-gray-50 rounded-xl p-3.5 mb-4">
-              <p className="text-xs text-gray-400 mb-1">예약번호 (QR Data: Bubble unique_ID)</p>
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-xs font-mono font-bold text-gray-700 break-all">{reservationId}</span>
-                <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors flex-shrink-0">
-                  {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
+          {/* 6자리 예약 코드 (대형 강조) */}
+          {reservationCode && (
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }}
+              className="bg-gradient-to-r from-[#0055FF]/10 to-[#7B2BFF]/10 border-2 border-[#0055FF]/20 rounded-2xl p-5 mb-4 text-center">
+              <p className="text-xs text-gray-500 font-semibold mb-2 tracking-wide uppercase">예약 번호</p>
+              <div className="flex items-center justify-center gap-3">
+                <span className="text-4xl font-extrabold tracking-[0.3em] text-[#0055FF] font-mono">
+                  {reservationCode}
+                </span>
+                <button onClick={handleCopy} className="p-2 rounded-xl hover:bg-white/80 transition-colors flex-shrink-0 active:scale-90">
+                  {copied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-[#0055FF]" />}
                 </button>
               </div>
+              <p className="text-[11px] text-gray-400 mt-2">
+                촬영 당일 포토그래퍼에게 이 번호를 알려주세요
+              </p>
             </motion.div>
           )}
 

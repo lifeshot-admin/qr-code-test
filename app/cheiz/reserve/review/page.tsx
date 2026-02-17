@@ -44,8 +44,9 @@ function ReviewContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [reservationCompleted, setReservationCompleted] = useState(false); // ✅ 예약 완료 플래그
+  const [reservationCompleted, setReservationCompleted] = useState(false);
   const [reservationId, setReservationId] = useState<string | null>(null);
+  const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   
   // ✅ [버그 수정] ref 기반 성공 플래그 — React 상태 비동기 업데이트와 무관하게 즉시 읽기 가능
@@ -437,10 +438,13 @@ function ReviewContent() {
       }
       
       const bubbleReservationId = step1Data.reservation_id;
+      const bubbleReservationCode = step1Data.reservation_code || "";
+      setReservationCode(bubbleReservationCode);
 
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       console.log(`${getTimestamp()} ✅✅✅ [STEP 1] pose_reservation created!`);
       console.log(`${getTimestamp()} 🆔 Bubble Reservation ID:`, bubbleReservationId);
+      console.log(`${getTimestamp()} 🔢 예약 코드:`, bubbleReservationCode);
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
       // ✅ [검증] reservation_id 확인
@@ -983,15 +987,15 @@ function ReviewContent() {
                 </div>
               )}
 
-              {/* 6자리 백업 코드 (크게 표시) */}
-              {reservationId && (
-                <div className="bg-[#0055FF]/10 rounded-2xl p-5 mb-6">
-                  <p className="text-xs text-gray-500 mb-2">예약 코드 (포토그래퍼에게 전달)</p>
-                  <p className="text-3xl font-mono font-extrabold tracking-[0.3em] text-[#0055FF]">
-                    {(reservationId.replace(/\D/g, "")).slice(-6)}
+              {/* 6자리 예약 코드 (크게 표시) */}
+              {reservationCode && (
+                <div className="bg-gradient-to-r from-[#0055FF]/10 to-[#7B2BFF]/10 border-2 border-[#0055FF]/20 rounded-2xl p-5 mb-6">
+                  <p className="text-xs text-gray-500 font-semibold mb-2 tracking-wide uppercase">예약 번호</p>
+                  <p className="text-4xl font-mono font-extrabold tracking-[0.3em] text-[#0055FF]">
+                    {reservationCode}
                   </p>
-                  <p className="text-[10px] text-gray-400 mt-2 font-mono break-all">
-                    ID: {reservationId}
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    촬영 당일 포토그래퍼에게 이 번호를 알려주세요
                   </p>
                 </div>
               )}

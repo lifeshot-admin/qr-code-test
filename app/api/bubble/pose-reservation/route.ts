@@ -13,13 +13,22 @@ const getTimestamp = (): string => {
 };
 
 /**
+ * 6자리 랜덤 숫자 코드 생성 (100000 ~ 999999)
+ * 고객이 기억하기 쉽도록 숫자만으로 구성
+ */
+function generateReservationCode(): string {
+  const code = Math.floor(100000 + Math.random() * 900000);
+  return String(code);
+}
+
+/**
  * POST /api/bubble/pose-reservation
  * 
  * Bubble DB의 pose_reservation 테이블에 새로운 예약 레코드를 생성합니다.
  * 
- * ✅ Bubble 허용 필드: folder_Id, tour_Id, user_Id, status, user_nickname
- * ⚠️ tour_name, tour_thumbnail, schedule_time은 Bubble 테이블에 없음 → 전송 금지
- * ⚠️ 슬러그는 반드시 pose_reservation (언더바) — pose-reservation(하이픈) 사용 금지
+ * ✅ Bubble 허용 필드: folder_Id, tour_Id, user_Id, status, user_nickname, Id
+ * ✅ Id 필드: 6자리 랜덤 예약 코드 (고객 식별용)
+ * ⚠️ 슬러그는 반드시 pose_reservation (언더바)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -61,6 +70,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── 6자리 예약 코드 생성 ──
+    const reservationCode = generateReservationCode();
+    console.log(`${getTimestamp()} 🔢 생성된 예약 코드: ${reservationCode}`);
+
     // ── Bubble Payload 구성 ──
     // ✅ 허용 필드만 전송 (Bubble에 없는 필드를 보내면 400 Unrecognized field 에러)
     const bubblePayload: Record<string, any> = {
@@ -68,15 +81,13 @@ export async function POST(request: NextRequest) {
       tour_Id: Number(tour_Id),
       user_Id: Number(user_Id),
       status: "pending",
+      Id: reservationCode,
     };
 
     // user_nickname은 Bubble 테이블에 존재하는 필드 → 값이 있을 때만 포함
     if (user_nickname) {
       bubblePayload.user_nickname = String(user_nickname);
     }
-
-    // ⚠️ tour_name, tour_thumbnail, schedule_time은 Bubble 테이블에 없음 → 절대 포함 금지
-    // (클라이언트에서 전달받아도 Bubble payload에는 넣지 않음)
 
     // ── 슬러그 고정: pose_reservation (언더바) ──
     const SLUG = "pose_reservation";
@@ -123,15 +134,13 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json();
     const reservationId = data.id || data._id || data.response?.id || "";
-    const idNumbers = (reservationId || "").replace(/\D/g, "");
-    const backupCode = idNumbers.slice(-6);
 
-    console.log(`${getTimestamp()} ✅ [BUBBLE] pose_reservation 생성 성공! ID: ${reservationId}`);
+    console.log(`${getTimestamp()} ✅ [BUBBLE] pose_reservation 생성 성공! ID: ${reservationId} | 예약코드: ${reservationCode}`);
 
     return NextResponse.json({
       success: true,
       reservation_id: reservationId,
-      backup_code: backupCode,
+      reservation_code: reservationCode,
       data: data,
     });
 
