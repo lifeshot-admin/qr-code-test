@@ -116,7 +116,6 @@ function ReviewContent() {
 
     setTourId(parsedTourId);
     
-    // ✅ folderId 확보 (URL 또는 세션에서)
     const folderIdParam = searchParams.get("folder_id");
     if (folderIdParam) {
       const parsedFolderId = parseInt(folderIdParam, 10);
@@ -128,9 +127,6 @@ function ReviewContent() {
       console.warn("⚠️ [FOLDER ID] Not found in URL, will use existing store value:", folderId);
     }
     
-    // ✅ [버그 수정] 예약 성공 후 clearAll()로 스토어가 초기화되면서
-    // useEffect가 재실행 → getTotalSelectedCount()=0 → "선택한 포즈가 없습니다" 팝업이 뜸
-    // 해결: isSuccessRef(ref)와 state 둘 다 체크하여 성공 상태에서는 절대 경고하지 않음
     if (isSuccessRef.current || reservationCompleted || showSuccessModal || submitting) {
       console.log("🛡️ [GUARD] 예약 성공/진행 중 — 포즈 0개 경고 스킵");
       setLoading(false);
@@ -139,8 +135,10 @@ function ReviewContent() {
 
     const totalCount = getTotalSelectedCount();
     if (totalCount === 0) {
-      await showAlert("선택한 포즈가 없습니다. 스팟 선택 페이지로 이동합니다.");
-      router.push(`/cheiz/reserve/spots?tour_id=${parsedTourId}`);
+      (async () => {
+        await showAlert("선택한 포즈가 없습니다. 스팟 선택 페이지로 이동합니다.");
+        router.push(`/cheiz/reserve/spots?tour_id=${parsedTourId}`);
+      })();
       return;
     }
     
