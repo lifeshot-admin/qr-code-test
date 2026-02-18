@@ -23,15 +23,29 @@ export async function GET(request: NextRequest) {
       cache: "no-store",
     });
 
-    console.log(`[TOURS_PROXY] Status: ${res.status}`);
+    const rawText = await res.text();
+    console.log(`[TOURS_PROXY] Status: ${res.status} | Body length: ${rawText.length}`);
+    console.log(`[TOURS_PROXY] Body preview: ${rawText.substring(0, 300)}`);
 
     if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      console.error(`[TOURS_PROXY] ❌ HTTP ${res.status}: ${errorText.substring(0, 500)}`);
+      console.error(`[TOURS_PROXY] ❌ HTTP ${res.status}: ${rawText.substring(0, 500)}`);
       return NextResponse.json({ data: [], error: `Backend ${res.status}` }, { status: res.status });
     }
 
-    const json = await res.json();
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error(`[TOURS_PROXY] ❌ JSON 파싱 실패:`, parseErr);
+      return NextResponse.json({ data: [], error: "Invalid JSON from backend", rawPreview: rawText.substring(0, 200) }, { status: 502 });
+    }
+
+    console.log(`[TOURS_PROXY] ✅ 응답 키: ${Object.keys(json).join(", ")}`);
+    if (json.data) {
+      const d = json.data;
+      console.log(`[TOURS_PROXY] ✅ data 타입: ${Array.isArray(d) ? "array(" + d.length + ")" : typeof d}, content 존재: ${!!d.content}`);
+    }
+
     return NextResponse.json(json);
   } catch (error: any) {
     console.error("[TOURS_PROXY] ❌ Exception:", error.message);

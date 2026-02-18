@@ -26,15 +26,23 @@ export async function GET(
       cache: "no-store",
     });
 
-    console.log(`[TOUR_DETAIL_PROXY] Status: ${res.status}`);
+    const rawText = await res.text();
+    console.log(`[TOUR_DETAIL_PROXY] Status: ${res.status} | Body length: ${rawText.length}`);
+    console.log(`[TOUR_DETAIL_PROXY] Body preview: ${rawText.substring(0, 300)}`);
 
     if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      console.error(`[TOUR_DETAIL_PROXY] ❌ HTTP ${res.status}: ${errorText.substring(0, 500)}`);
+      console.error(`[TOUR_DETAIL_PROXY] ❌ HTTP ${res.status}: ${rawText.substring(0, 500)}`);
       return NextResponse.json({ data: null, error: `Backend ${res.status}` }, { status: res.status });
     }
 
-    const json = await res.json();
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      console.error(`[TOUR_DETAIL_PROXY] ❌ JSON 파싱 실패`);
+      return NextResponse.json({ data: null, error: "Invalid JSON from backend" }, { status: 502 });
+    }
+
     return NextResponse.json(json);
   } catch (error: any) {
     console.error("[TOUR_DETAIL_PROXY] ❌ Exception:", error.message);

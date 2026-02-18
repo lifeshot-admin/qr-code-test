@@ -110,14 +110,29 @@ export async function fetchTours(locale: string = "ko"): Promise<TourDetail[]> {
       return [];
     }
 
-    const json = await res.json();
+    const rawText = await res.text();
+    console.log(`📦 [fetchTours] Raw body length: ${rawText.length}`);
+    console.log(`📦 [fetchTours] Raw body preview (500자): ${rawText.substring(0, 500)}`);
+
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error(`❌ [fetchTours] JSON 파싱 실패! Raw preview:`, rawText.substring(0, 200));
+      return [];
+    }
+
     console.log(`📦 [fetchTours] 응답 구조:`, {
+      topKeys: Object.keys(json),
       hasData: !!json.data,
       dataIsArray: Array.isArray(json.data),
       hasContent: !!json.data?.content,
       contentIsArray: Array.isArray(json.data?.content),
       topLevelIsArray: Array.isArray(json),
       topLevelContent: Array.isArray(json.content),
+      statusCode: json.statusCode,
+      code: json.code,
+      message: json.message,
     });
 
     // 추출 경로 탐색 (우선순위 순)
@@ -208,15 +223,31 @@ export async function fetchTourDetail(
       return null;
     }
 
-    const json = await res.json();
+    const rawText = await res.text();
+    console.log(`📦 [fetchTourDetail] Raw body length: ${rawText.length}`);
+    console.log(`📦 [fetchTourDetail] Raw preview (500자): ${rawText.substring(0, 500)}`);
 
-    // 데이터 추출 (다양한 응답 형식 대응)
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      console.error(`❌ [fetchTourDetail] JSON 파싱 실패!`);
+      return null;
+    }
+
+    console.log(`📦 [fetchTourDetail] 응답 키:`, Object.keys(json));
+
     let tour: TourDetail | null = null;
 
     if (json.data && typeof json.data === "object" && !Array.isArray(json.data)) {
       tour = json.data;
+      console.log(`✅ [fetchTourDetail] json.data에서 추출 — name: ${tour?.name}`);
     } else if (json.id && json.name) {
       tour = json as TourDetail;
+      console.log(`✅ [fetchTourDetail] json 자체가 투어 — name: ${tour?.name}`);
+    } else {
+      console.error(`❌ [fetchTourDetail] 데이터 추출 실패! 응답 키:`, Object.keys(json));
+      console.error(`❌ [fetchTourDetail] 전체 응답 (200자):`, JSON.stringify(json).substring(0, 200));
     }
 
     return tour;
@@ -277,7 +308,18 @@ export async function fetchSchedules(
       return [];
     }
 
-    const json = await res.json();
+    const rawText = await res.text();
+    console.log(`📦 [fetchSchedules] Raw body length: ${rawText.length}`);
+    console.log(`📦 [fetchSchedules] Raw preview (300자): ${rawText.substring(0, 300)}`);
+
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      console.error(`❌ [fetchSchedules] JSON 파싱 실패!`);
+      return [];
+    }
+
     console.log(`📦 [fetchSchedules] 응답 키:`, Object.keys(json));
 
     // 데이터 추출 (다양한 응답 형식 대응)

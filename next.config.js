@@ -74,6 +74,32 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      // ✅ AWS S3 리전별 도메인 (Java 백엔드 이미지)
+      {
+        protocol: 'https',
+        hostname: 's3.ap-northeast-1.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.s3.ap-northeast-1.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.s3.ap-northeast-2.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      // ✅ CloudFront CDN (이미지 배포 시)
+      {
+        protocol: 'https',
+        hostname: '*.cloudfront.net',
+        port: '',
+        pathname: '/**',
+      },
     ],
     // WebP 형식 우선 사용
     formats: ['image/webp', 'image/avif'],
