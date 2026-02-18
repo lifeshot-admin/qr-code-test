@@ -1,20 +1,16 @@
 /**
  * Tour & Schedule API Client (Public/Guest Endpoints)
- * Base URL: https://api.lifeshot.me
  *
- * 손님용(Public) API — 인증 불필요
- * Tour 상세 조회 및 Schedule 목록 조회
- *
- * 데이터 흐름:
- * 1. fetchTourDetail(tourId) → 투어 기본정보 + 이미지 목록
- * 2. fetchSchedules(tourId) → 예약 가능한 날짜/시간 슬롯 목록
- * 3. groupSchedulesByDate() → 날짜별 시간 슬롯 그룹화 (UI용)
+ * 브라우저: /api/backend/tours 프록시 경유 (CORS 우회)
+ * 서버: api.lifeshot.me 직접 호출
  */
 
-const API_BASE_URL =
+const DIRECT_API_BASE =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://api.lifeshot.me";
+
+const isServer = typeof window === "undefined";
 
 // ==================== TYPES ====================
 
@@ -90,11 +86,13 @@ type ApiResponse<T> = {
  */
 export async function fetchTours(locale: string = "ko"): Promise<TourDetail[]> {
   const params = new URLSearchParams({ viewLanguage: locale });
-  const url = `${API_BASE_URL}/api/v1/tours/search?${params.toString()}`;
+  const url = isServer
+    ? `${DIRECT_API_BASE}/api/v1/tours/search?${params.toString()}`
+    : `/api/backend/tours?${params.toString()}`;
 
   try {
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    console.log(`🔍 [fetchTours] GET ${url}`);
+    console.log(`🔍 [fetchTours] ${isServer ? "SERVER" : "CLIENT"} → GET ${url}`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
     const res = await fetch(url, {
@@ -192,7 +190,9 @@ export async function fetchTourDetail(
   }
 
   const params = new URLSearchParams({ viewLanguage: locale });
-  const url = `${API_BASE_URL}/api/v1/tours/search/${numericId}?${params.toString()}`;
+  const url = isServer
+    ? `${DIRECT_API_BASE}/api/v1/tours/search/${numericId}?${params.toString()}`
+    : `/api/backend/tours/${numericId}?${params.toString()}`;
 
   try {
     const res = await fetch(url, {
@@ -250,7 +250,9 @@ export async function fetchSchedules(
     tourId: String(numericId),
     viewLanguage: locale,
   });
-  const url = `${API_BASE_URL}/api/v1/schedules/search?${params.toString()}`;
+  const url = isServer
+    ? `${DIRECT_API_BASE}/api/v1/schedules/search?${params.toString()}`
+    : `/api/backend/schedules-search?${params.toString()}`;
 
   try {
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

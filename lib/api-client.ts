@@ -7,10 +7,12 @@
  * - Response types must match Swagger schema
  */
 
-const API_BASE_URL =
+const DIRECT_API_BASE =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://api.lifeshot.me";
+
+const isServer = typeof window === "undefined";
 
 /**
  * Standard Swagger Response Envelope
@@ -122,9 +124,20 @@ async function apiCall<T>(
   options: RequestInit = {},
   requireAuth: boolean = false
 ): Promise<SwaggerResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  let url: string;
+  if (isServer) {
+    url = `${DIRECT_API_BASE}${endpoint}`;
+  } else {
+    const proxyParams = new URLSearchParams({ path: endpoint });
+    const epUrl = new URL(endpoint, "https://placeholder.com");
+    epUrl.searchParams.forEach((v, k) => proxyParams.set(k, v));
+    if (epUrl.search) {
+      proxyParams.set("path", epUrl.pathname);
+    }
+    url = `/api/backend/proxy?${proxyParams.toString()}`;
+  }
   
-  console.log(`[apiCall] ${options.method || "GET"} ${url}`);
+  console.log(`[apiCall] ${isServer ? "SERVER" : "CLIENT"} ${options.method || "GET"} ${url}`);
 
   const headers = await getHeaders(requireAuth);
   
@@ -227,7 +240,9 @@ async function apiCall<T>(
  * 반환: { ...SwaggerResponse, available: boolean }
  */
 export async function checkEmail(email: string): Promise<SwaggerResponse & { available: boolean }> {
-  const url = `${API_BASE_URL}/api/v1/auth/email/check`;
+  const url = isServer
+    ? `${DIRECT_API_BASE}/api/v1/auth/email/check`
+    : `/api/backend/proxy?path=${encodeURIComponent("/api/v1/auth/email/check")}`;
 
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("[API REQUEST] Duplication Check:", email);
@@ -476,7 +491,9 @@ export async function signup(payload: SignupPayload): Promise<{
   response: SwaggerResponse;
   accessToken: string | null;
 }> {
-  const url = `${API_BASE_URL}/api/v1/auth/signup`;
+  const url = isServer
+    ? `${DIRECT_API_BASE}/api/v1/auth/signup`
+    : `/api/backend/proxy?path=${encodeURIComponent("/api/v1/auth/signup")}`;
   
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("📡 [Signup] POST", url);
@@ -528,7 +545,9 @@ export async function uploadProfileImage(
   file: File,
   accessToken: string
 ): Promise<SwaggerResponse> {
-  const url = `${API_BASE_URL}/api/v1/profile/${userId}/photo`;
+  const url = isServer
+    ? `${DIRECT_API_BASE}/api/v1/profile/${userId}/photo`
+    : `/api/backend/profile-image-upload?userId=${userId}`;
   
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("📡 [Profile Upload] POST", url);
