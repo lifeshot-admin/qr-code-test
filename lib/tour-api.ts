@@ -124,57 +124,70 @@ export async function fetchTours(locale: string = "ko"): Promise<TourDetail[]> {
 
     console.log(`📦 [fetchTours] 응답 구조:`, {
       topKeys: Object.keys(json),
+      topContentIsArray: Array.isArray(json.content),
+      topContentLength: Array.isArray(json.content) ? json.content.length : "N/A",
       hasData: !!json.data,
+      dataType: json.data === null ? "null" : typeof json.data,
+      dataContentIsArray: Array.isArray(json.data?.content),
       dataIsArray: Array.isArray(json.data),
-      hasContent: !!json.data?.content,
-      contentIsArray: Array.isArray(json.data?.content),
       topLevelIsArray: Array.isArray(json),
-      topLevelContent: Array.isArray(json.content),
       statusCode: json.statusCode,
       code: json.code,
-      message: json.message,
     });
 
-    // 추출 경로 탐색 (우선순위 순)
+    // ═══ 투어 배열 추출 (모든 가능한 응답 구조 대응) ═══
     let tours: TourDetail[] = [];
+    let extractedFrom = "";
 
-    // 1순위: json.data.content (페이지네이션 응답)
-    if (json.data?.content && Array.isArray(json.data.content)) {
-      tours = json.data.content;
-      console.log(`✅ [fetchTours] json.data.content에서 ${tours.length}개 추출`);
+    // 1순위: json.content (백엔드 페이지네이션 직접 반환)
+    if (Array.isArray(json.content)) {
+      tours = json.content;
+      extractedFrom = "json.content";
     }
-    // 2순위: json.data 자체가 배열
+    // 2순위: json.data.content (Swagger envelope + 페이지네이션)
+    else if (Array.isArray(json.data?.content)) {
+      tours = json.data.content;
+      extractedFrom = "json.data.content";
+    }
+    // 3순위: json.data 자체가 배열
     else if (Array.isArray(json.data)) {
       tours = json.data;
-      console.log(`✅ [fetchTours] json.data에서 ${tours.length}개 추출`);
-    }
-    // 3순위: json.content (envelope 없이 바로 content)
-    else if (json.content && Array.isArray(json.content)) {
-      tours = json.content;
-      console.log(`✅ [fetchTours] json.content에서 ${tours.length}개 추출`);
+      extractedFrom = "json.data";
     }
     // 4순위: json 자체가 배열
     else if (Array.isArray(json)) {
       tours = json;
-      console.log(`✅ [fetchTours] json 자체 배열에서 ${tours.length}개 추출`);
+      extractedFrom = "json (root array)";
     }
-    // 추출 실패
-    else {
-      console.error(`❌ [fetchTours] 데이터 추출 실패! 응답 키:`, Object.keys(json));
-      console.error(`❌ [fetchTours] 전체 응답 (100자):`, JSON.stringify(json).substring(0, 100));
-      return [];
+    // 5순위: json.data가 단일 객체이면서 내부에 content가 있는 경우
+    else if (json.data && typeof json.data === "object") {
+      const inner = json.data;
+      if (Array.isArray(inner.content)) {
+        tours = inner.content;
+        extractedFrom = "json.data.content (deep)";
+      } else {
+        const arrField = Object.values(inner).find((v) => Array.isArray(v));
+        if (arrField) {
+          tours = arrField as TourDetail[];
+          extractedFrom = "json.data.[first array field]";
+        }
+      }
     }
 
-    // 첫 번째 투어 샘플 로그
     if (tours.length > 0) {
+      console.log(`✅ [fetchTours] "${extractedFrom}" 에서 ${tours.length}개 추출`);
       const sample = tours[0];
-      console.log(`📋 [fetchTours] 첫 투어 샘플:`, {
+      console.log(`📋 [fetchTours] 첫 투어:`, {
         id: sample.id,
         name: sample.name,
         location: sample.location,
-        thumbnailImageUrl: sample.thumbnailImageUrl?.substring(0, 50),
-        isClosed: sample.isClosed,
+        thumb: sample.thumbnailImageUrl?.substring(0, 60),
       });
+    } else if (extractedFrom) {
+      console.warn(`⚠️ [fetchTours] "${extractedFrom}" 에서 추출했지만 0개`);
+    } else {
+      console.error(`❌ [fetchTours] 데이터 추출 실패! 응답 키:`, Object.keys(json));
+      console.error(`❌ [fetchTours] 전체 응답 (200자):`, JSON.stringify(json).substring(0, 200));
     }
 
     console.log(`🔥 [fetchTours] 최종 투어 개수: ${tours.length}개`);
@@ -237,17 +250,41 @@ export async function fetchTourDetail(
 
     console.log(`📦 [fetchTourDetail] 응답 키:`, Object.keys(json));
 
+    // ═══ 단일 투어 객체 추출 (모든 가능한 응답 구조 대응) ═══
     let tour: TourDetail | null = null;
+    let extractedFrom = "";
 
-    if (json.data && typeof json.data === "object" && !Array.isArray(json.data)) {
-      tour = json.data;
-      console.log(`✅ [fetchTourDetail] json.data에서 추출 — name: ${tour?.name}`);
-    } else if (json.id && json.name) {
+    // 1순위: json 자체가 투어 객체 (id + name 존재)
+    if (json.id && json.name) {
       tour = json as TourDetail;
-      console.log(`✅ [fetchTourDetail] json 자체가 투어 — name: ${tour?.name}`);
+      extractedFrom = "json (root object)";
+    }
+    // 2순위: json.data가 투어 객체
+    else if (json.data && typeof json.data === "object" && !Array.isArray(json.data) && json.data.id) {
+      tour = json.data;
+      extractedFrom = "json.data";
+    }
+    // 3순위: json.content가 배열이고 첫 번째 항목이 투어
+    else if (Array.isArray(json.content) && json.content.length > 0 && json.content[0].id) {
+      tour = json.content[0];
+      extractedFrom = "json.content[0]";
+    }
+    // 4순위: json.data.content가 배열이고 첫 번째 항목이 투어
+    else if (Array.isArray(json.data?.content) && json.data.content.length > 0) {
+      tour = json.data.content[0];
+      extractedFrom = "json.data.content[0]";
+    }
+    // 5순위: json.data가 단일 객체 (id 없이도)
+    else if (json.data && typeof json.data === "object" && !Array.isArray(json.data)) {
+      tour = json.data;
+      extractedFrom = "json.data (no id check)";
+    }
+
+    if (tour) {
+      console.log(`✅ [fetchTourDetail] "${extractedFrom}" 에서 추출 — id: ${tour.id}, name: ${tour.name}`);
     } else {
       console.error(`❌ [fetchTourDetail] 데이터 추출 실패! 응답 키:`, Object.keys(json));
-      console.error(`❌ [fetchTourDetail] 전체 응답 (200자):`, JSON.stringify(json).substring(0, 200));
+      console.error(`❌ [fetchTourDetail] 전체 응답 (300자):`, JSON.stringify(json).substring(0, 300));
     }
 
     return tour;
@@ -322,26 +359,30 @@ export async function fetchSchedules(
 
     console.log(`📦 [fetchSchedules] 응답 키:`, Object.keys(json));
 
-    // 데이터 추출 (다양한 응답 형식 대응)
+    // ═══ 스케줄 배열 추출 (content 최우선) ═══
     let schedules: ScheduleItem[] = [];
+    let extractedFrom = "";
 
-    if (json.data?.content && Array.isArray(json.data.content)) {
+    if (Array.isArray(json.content)) {
+      schedules = json.content;
+      extractedFrom = "json.content";
+    } else if (Array.isArray(json.data?.content)) {
       schedules = json.data.content;
-      console.log(`✅ [fetchSchedules] json.data.content에서 ${schedules.length}개 추출`);
+      extractedFrom = "json.data.content";
     } else if (Array.isArray(json.data)) {
       schedules = json.data;
-      console.log(`✅ [fetchSchedules] json.data에서 ${schedules.length}개 추출`);
-    } else if (json.content && Array.isArray(json.content)) {
-      schedules = json.content;
-      console.log(`✅ [fetchSchedules] json.content에서 ${schedules.length}개 추출`);
+      extractedFrom = "json.data";
     } else if (Array.isArray(json)) {
       schedules = json;
-      console.log(`✅ [fetchSchedules] json 자체 배열에서 ${schedules.length}개 추출`);
+      extractedFrom = "json (root array)";
     } else {
       console.error(`❌ [fetchSchedules] 데이터 추출 실패! 응답 키:`, Object.keys(json));
       console.error(`❌ [fetchSchedules] 전체 응답 (200자):`, JSON.stringify(json).substring(0, 200));
     }
 
+    if (extractedFrom) {
+      console.log(`✅ [fetchSchedules] "${extractedFrom}" 에서 ${schedules.length}개 추출`);
+    }
     console.log(`📅 [fetchSchedules] 최종 스케줄 개수: ${schedules.length}개`);
     return schedules;
   } catch (error) {
