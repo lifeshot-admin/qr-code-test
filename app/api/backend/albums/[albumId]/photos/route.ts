@@ -58,39 +58,53 @@ export async function GET(
     }
 
     if (!res.ok) {
+      console.error("[ALBUM_PHOTOS] ❌ 백엔드 에러:", res.status, parsed?.message || text.substring(0, 200));
       return NextResponse.json(
         { success: false, error: parsed.message || `Backend ${res.status}` },
         { status: res.status }
       );
     }
 
-    // 응답 구조 분석 로그
-    console.log("[ALBUM_PHOTOS] 🔍 응답 구조 분석:");
-    console.log("  최상위 키:", Object.keys(parsed));
-    console.log("  parsed.content 존재:", !!parsed?.content, "| 타입:", typeof parsed?.content);
-    console.log("  parsed.data 존재:", !!parsed?.data, "| 타입:", typeof parsed?.data);
-    if (parsed?.data) console.log("  parsed.data 키:", Object.keys(parsed.data));
+    // ─── 정밀 디버그: 백엔드 원본 응답 구조 ───
+    console.log("[DEBUG_PHOTOS] 📥 백엔드 원본 응답 구조:", Object.keys(parsed));
+    console.log("[DEBUG_PHOTOS]   parsed.content 존재:", !!parsed?.content, "| isArray:", Array.isArray(parsed?.content), "| 타입:", typeof parsed?.content);
+    console.log("[DEBUG_PHOTOS]   parsed.data 존재:", !!parsed?.data, "| isArray:", Array.isArray(parsed?.data), "| 타입:", typeof parsed?.data);
+    if (parsed?.data && typeof parsed.data === "object" && !Array.isArray(parsed.data)) {
+      console.log("[DEBUG_PHOTOS]   parsed.data 하위키:", Object.keys(parsed.data));
+      console.log("[DEBUG_PHOTOS]   parsed.data.content 존재:", !!parsed.data?.content, "| isArray:", Array.isArray(parsed.data?.content));
+    }
+    console.log("[DEBUG_PHOTOS]   parsed 자체가 배열?:", Array.isArray(parsed));
+    console.log("[DEBUG_PHOTOS]   totalElements:", parsed?.totalElements, "| totalPages:", parsed?.totalPages, "| number:", parsed?.number);
 
-    // content 우선순위: 이 API는 content 배열에 직접 담아 반환
+    // content 우선순위
     let photos: any[] = [];
     if (Array.isArray(parsed?.content)) {
       photos = parsed.content;
-      console.log("[ALBUM_PHOTOS] ✅ 추출경로: parsed.content →", photos.length, "장");
+      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed.content →", photos.length, "장");
     } else if (parsed?.data?.content && Array.isArray(parsed.data.content)) {
       photos = parsed.data.content;
-      console.log("[ALBUM_PHOTOS] ✅ 추출경로: parsed.data.content →", photos.length, "장");
+      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed.data.content →", photos.length, "장");
     } else if (Array.isArray(parsed?.data)) {
       photos = parsed.data;
-      console.log("[ALBUM_PHOTOS] ✅ 추출경로: parsed.data(배열) →", photos.length, "장");
+      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed.data(배열) →", photos.length, "장");
     } else if (Array.isArray(parsed)) {
       photos = parsed;
-      console.log("[ALBUM_PHOTOS] ✅ 추출경로: parsed(배열 자체) →", photos.length, "장");
+      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed(배열 자체) →", photos.length, "장");
     } else {
-      console.warn("[ALBUM_PHOTOS] ⚠️ 사진 배열 추출 실패! 전체 키:", Object.keys(parsed));
+      console.warn("[DEBUG_PHOTOS] ⚠️ 사진 배열 추출 실패! 응답 전문(앞 500자):", JSON.stringify(parsed).substring(0, 500));
     }
 
+    console.log(`[DEBUG_PHOTOS] 📊 최종 추출된 사진 수: ${photos.length}장`);
+
     if (photos.length > 0) {
-      console.log("[ALBUM_PHOTOS] 📷 첫 번째 사진 샘플:", JSON.stringify(photos[0]).substring(0, 300));
+      const sample = photos[0];
+      console.log("[DEBUG_PHOTOS] 📷 첫 번째 사진 필드:", Object.keys(sample));
+      console.log("[DEBUG_PHOTOS] 🔗 albumPhotoUrl:", sample.albumPhotoUrl?.substring(0, 120));
+      console.log("[DEBUG_PHOTOS] 🔗 albumPhotoDownloadUrl:", sample.albumPhotoDownloadUrl?.substring(0, 120));
+      console.log("[DEBUG_PHOTOS] 🔗 thumbnailUrl:", sample.thumbnailUrl?.substring(0, 120));
+      console.log("[DEBUG_PHOTOS]    photoType:", sample.photoType, "| isCompleted:", sample.isCompleted);
+    } else {
+      console.warn("[DEBUG_PHOTOS] ⚠️ content 배열이 비어있습니다! 응답 전문(앞 300자):", JSON.stringify(parsed).substring(0, 300));
     }
 
     return NextResponse.json({

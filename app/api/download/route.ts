@@ -5,11 +5,16 @@ export const dynamic = "force-dynamic";
 // 깨진 S3 URL 수선: .jpg 뒤에 붙은 중복 파일명 제거
 // 예: thumbnail_123.jpg225316...jpg → thumbnail_123.jpg
 function repairUrl(raw: string): string {
-  // 패턴 1: .jpg 또는 .jpeg 또는 .png 뒤에 숫자/문자가 더 붙어있는 경우
-  const repaired = raw.replace(/(\.(jpe?g|png|webp|gif))[\w%._-]+\.(jpe?g|png|webp|gif)$/i, "$1");
+  console.log("[DEBUG_PROXY] 🛠️ 수선 전 URL:", raw.substring(raw.length - 80));
+
+  // 패턴: 첫 번째 이미지 확장자 이후의 모든 잔여물 제거
+  const repaired = raw.replace(/(\.(jpe?g|png|webp|gif)).*$/i, "$1");
 
   if (repaired !== raw) {
-    console.log("[DL_PROXY] 🔧 URL 수선:", raw.substring(raw.length - 60), "→", repaired.substring(repaired.length - 40));
+    console.log("[DEBUG_PROXY] ✨ 수선 후 URL:", repaired.substring(repaired.length - 60));
+    console.log("[DEBUG_PROXY] 🔧 제거된 부분:", raw.substring(repaired.length));
+  } else {
+    console.log("[DEBUG_PROXY] ✅ URL 정상 — 수선 불필요");
   }
 
   return repaired;
@@ -24,21 +29,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "url parameter required" }, { status: 400 });
   }
 
+  console.log("[DEBUG_PROXY] 📡 프록시 요청 수신 — 원본 URL 길이:", rawUrl.length, "| 앞 120자:", rawUrl.substring(0, 120));
+
   try {
     const cleanUrl = repairUrl(rawUrl);
-    console.log("[DL_PROXY] 📡 다운로드 요청:", cleanUrl.substring(0, 120) + "...");
 
     const res = await fetch(cleanUrl, {
       headers: { "Accept": "image/*,*/*" },
     });
 
+    console.log(`[DEBUG_PROXY] 📡 S3 응답 (수선URL): ${res.status} ${res.statusText} | Content-Type: ${res.headers.get("Content-Type")}`);
+
     if (!res.ok) {
+      // S3 에러 내용 확인
+      let errorDetail = "";
+      try { errorDetail = await res.text(); } catch {}
+      console.error("[DEBUG_PROXY] ❌ S3 에러 내용 (수선URL):", errorDetail.substring(0, 200));
+
       // 수선된 URL도 실패하면 원본 URL로 재시도
       if (cleanUrl !== rawUrl) {
-        console.log("[DL_PROXY] 🔄 수선 URL 실패 → 원본 URL 재시도");
+        console.log("[DEBUG_PROXY] 🔄 수선 URL 실패 → 원본 URL 재시도");
         const retry = await fetch(rawUrl, { headers: { "Accept": "image/*,*/*" } });
+        console.log(`[DEBUG_PROXY] 📡 S3 응답 (원본URL): ${retry.status} ${retry.statusText}`);
+
         if (retry.ok) {
           const blob = await retry.arrayBuffer();
+          console.log("[DEBUG_PROXY] ✅ 원본 URL 성공:", (blob.byteLength / 1024).toFixed(0), "KB");
           return new NextResponse(blob, {
             status: 200,
             headers: {
@@ -48,14 +64,18 @@ export async function GET(req: NextRequest) {
             },
           });
         }
+
+        let retryError = "";
+        try { retryError = await retry.text(); } catch {}
+        console.error("[DEBUG_PROXY] ❌ S3 에러 내용 (원본URL):", retryError.substring(0, 200));
       }
 
-      console.error("[DL_PROXY] ❌ S3 응답 실패:", res.status, cleanUrl.substring(0, 80));
+      console.error("[DEBUG_PROXY] ❌ 모든 시도 실패 — 최종 status:", res.status);
       return NextResponse.json({ error: `S3 ${res.status}` }, { status: res.status });
     }
 
     const blob = await res.arrayBuffer();
-    console.log("[DL_PROXY] ✅ 다운로드 성공:", (blob.byteLength / 1024).toFixed(0), "KB");
+    console.log("[DEBUG_PROXY] ✅ 다운로드 성공:", (blob.byteLength / 1024).toFixed(0), "KB | Content-Type:", res.headers.get("Content-Type"));
 
     return new NextResponse(blob, {
       status: 200,
@@ -66,7 +86,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e: any) {
-    console.error("[DL_PROXY] ❌ 에러:", e.message);
+    console.error("[DEBUG_PROXY] ❌ 네트워크/시스템 에러:", e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }

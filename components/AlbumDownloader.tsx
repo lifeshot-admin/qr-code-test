@@ -43,17 +43,30 @@ export default function AlbumDownloader({
     let ok = 0;
     let fail = 0;
 
+    console.log(`[CLIENT_DL] 🚀 다운로드 시작 — 총 ${photos.length}장`);
+    console.log(`[CLIENT_DL] 📋 전체 URL 목록:`);
+    photos.forEach((p, idx) => console.log(`  [${idx + 1}] id: ${p.id} | url: ${p.url?.substring(0, 100)}`));
+
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
-      try {
-        // Vercel 프록시 경유: CORS 우회 + 깨진 URL 자동 수선
-        const proxyUrl = `/api/download?url=${encodeURIComponent(photo.url)}`;
-        console.log(`[DOWNLOAD] ${i + 1}/${photos.length} 프록시 요청:`, photo.url.substring(0, 80));
+      const proxyUrl = `/api/download?url=${encodeURIComponent(photo.url)}`;
 
+      console.log(`[CLIENT_DL] 🚀 ${i + 1}/${photos.length}번째 사진 시도 — id: ${photo.id}`);
+      console.log(`[CLIENT_DL]    원본 URL 뒷부분: ...${photo.url?.substring(photo.url.length - 60)}`);
+
+      try {
         const res = await fetch(proxyUrl);
-        if (!res.ok) throw new Error(`Proxy ${res.status}`);
+        console.log(`[CLIENT_DL]    프록시 응답: ${res.status} ${res.statusText} | Content-Type: ${res.headers.get("Content-Type")}`);
+
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "(읽기 실패)");
+          console.error(`[CLIENT_DL] ❌ 서버 응답 에러 (${res.status}):`, photo.id, errBody.substring(0, 200));
+          throw new Error(`Proxy ${res.status}: ${errBody.substring(0, 80)}`);
+        }
 
         const blob = await res.blob();
+        console.log(`[CLIENT_DL]    ✅ Blob 수신: ${(blob.size / 1024).toFixed(0)}KB | type: ${blob.type}`);
+
         const ext = blob.type.includes("png") ? "png" : "jpg";
         const filename = photo.filename || buildFilename(i, ext);
 
@@ -65,9 +78,10 @@ export default function AlbumDownloader({
         document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
 
+        console.log(`[CLIENT_DL]    💾 저장 완료: ${filename}`);
         ok++;
-      } catch (e) {
-        console.error(`[DOWNLOAD] ❌ ${photo.id}:`, e);
+      } catch (e: any) {
+        console.error(`[CLIENT_DL] 🚨 ${photo.id} 다운로드 실패:`, e.message || e);
         fail++;
       }
 
@@ -80,6 +94,7 @@ export default function AlbumDownloader({
       }
     }
 
+    console.log(`[CLIENT_DL] 🏁 다운로드 종료 — 성공: ${ok}장, 실패: ${fail}장`);
     setPhase("done");
   }, [photos, totalCount]);
 
