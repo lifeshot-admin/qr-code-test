@@ -33,7 +33,7 @@ function generateReservationCode(): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { folder_Id, tour_Id, user_Id, user_nickname } = body;
+    const { folder_Id, tour_Id, user_Id, user_nickname, persona } = body;
 
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log(`${getTimestamp()} 🏰 [BUBBLE] STEP 1: Creating pose_reservation`);
@@ -84,9 +84,13 @@ export async function POST(request: NextRequest) {
       Id: reservationCode,
     };
 
-    // user_nickname은 Bubble 테이블에 존재하는 필드 → 값이 있을 때만 포함
     if (user_nickname) {
       bubblePayload.user_nickname = String(user_nickname);
+    }
+
+    // persona: JSON 문자열로 저장 (예: {"count":2,"category":"couple"})
+    if (persona) {
+      bubblePayload.persona = typeof persona === "string" ? persona : JSON.stringify(persona);
     }
 
     // ── 슬러그 고정: pose_reservation (언더바) ──

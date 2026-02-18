@@ -1,17 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Ticket, ChevronRight, Gift, Sparkles,
+  Gift, Sparkles,
   MapPin, Clock, X, Search, Loader2, Copy, Check,
-  Camera, Bot, Zap,
+  Camera, Bot, Zap, CalendarClock, Flame,
 } from "lucide-react";
 import Image from "next/image";
 
-// 버블 DB reward_event 필드 기준 타입
 export type RewardEvent = {
   _id: string;
   title: string;
@@ -27,6 +26,8 @@ export type RewardEvent = {
   sort_order: number;
   target_url?: string;
   thumbnail_url?: string;
+  promotion?: string;
+  expire_date?: string;
 };
 
 const REWARD_TYPE_CONFIG: Record<string, {
@@ -59,8 +60,28 @@ const REWARD_TYPE_CONFIG: Record<string, {
   },
 };
 
+function isExpired(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d < today;
+}
+
+function daysUntil(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 function RewardCard({ event, index, onClick }: { event: RewardEvent; index: number; onClick: () => void }) {
   const config = REWARD_TYPE_CONFIG[event.reward_type] || REWARD_TYPE_CONFIG.PHOTO;
+  const remaining = daysUntil(event.expire_date);
 
   return (
     <motion.div
@@ -87,12 +108,23 @@ function RewardCard({ event, index, onClick }: { event: RewardEvent; index: numb
         <div className="flex-1 p-3 flex flex-col justify-center min-w-0">
           <h3 className="text-sm font-bold text-gray-900 truncate">{event.title}</h3>
           <p className="text-[11px] text-gray-400 mt-0.5 truncate">{event.subtitle || ""}</p>
-          <div className="flex items-center gap-1.5 mt-2">
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${config.badgeColor}`}>
               {config.icon}
               {config.sublabel}
             </span>
+            {remaining !== null && remaining >= 0 && remaining <= 7 && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-500">
+                <CalendarClock className="w-3 h-3" />
+                D-{remaining === 0 ? "DAY" : remaining}
+              </span>
+            )}
           </div>
+          {event.expire_date && (
+            <p className="text-[10px] text-gray-400 mt-1">
+              마감: {event.expire_date.slice(0, 10)}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center pr-3 flex-shrink-0">
@@ -116,6 +148,45 @@ function RewardCard({ event, index, onClick }: { event: RewardEvent; index: numb
   );
 }
 
+function PromoCard({ event, index, onClick }: { event: RewardEvent; index: number; onClick: () => void }) {
+  const gradients = [
+    "from-[#FF9A9E] to-[#FECFEF]",
+    "from-[#667EEA] to-[#764BA2]",
+    "from-[#F093FB] to-[#F5576C]",
+    "from-[#4FACFE] to-[#00F2FE]",
+  ];
+  const bg = gradients[index % gradients.length];
+  const remaining = daysUntil(event.expire_date);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 + index * 0.08 }}
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${bg} p-6 min-h-[160px] flex flex-col justify-end cursor-pointer active:scale-[0.98] transition-transform shadow-sm`}
+    >
+      {event.badge_text && (
+        <span className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm text-white text-[10px] font-bold px-3 py-1 rounded-full">
+          {event.badge_text}
+        </span>
+      )}
+      {remaining !== null && remaining >= 0 && (
+        <span className="absolute top-4 left-4 bg-black/20 backdrop-blur-sm text-white text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1">
+          <Flame className="w-3 h-3" />
+          {remaining === 0 ? "오늘 마감!" : `D-${remaining}`}
+        </span>
+      )}
+      <div className="text-white/30 mb-3"><Camera className="w-10 h-10" /></div>
+      <h3 className="text-xl font-bold text-white mb-1">{event.title}</h3>
+      <p className="text-sm text-white/80">{event.subtitle || event.benefit_desc || ""}</p>
+      {event.expire_date && (
+        <p className="text-[11px] text-white/60 mt-2">마감: {event.expire_date.slice(0, 10)}</p>
+      )}
+    </motion.div>
+  );
+}
+
 export default function EventsPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -124,7 +195,6 @@ export default function EventsPage() {
   const [events, setEvents] = useState<RewardEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
 
-  // 버블 DB에서 이벤트 로드
   useEffect(() => {
     const load = async () => {
       try {
@@ -142,18 +212,30 @@ export default function EventsPage() {
     load();
   }, []);
 
-  // 쿠폰 모달
+  const { promoEvents, activeEvents, expiredEvents } = useMemo(() => {
+    const promo: RewardEvent[] = [];
+    const active: RewardEvent[] = [];
+    const expired: RewardEvent[] = [];
+
+    for (const evt of events) {
+      if (isExpired(evt.expire_date)) {
+        expired.push(evt);
+      } else if (evt.promotion === "yes") {
+        promo.push(evt);
+      } else {
+        active.push(evt);
+      }
+    }
+
+    return { promoEvents: promo, activeEvents: active, expiredEvents: expired };
+  }, [events]);
+
+  /* 쿠폰 검색 관련 — 주석 처리 (나중에 재활성화 가능)
   const [couponModalOpen, setCouponModalOpen] = useState(false);
   const [tourDate, setTourDate] = useState("");
   const [phone4, setPhone4] = useState("");
   const [searching, setSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<{
-    found: boolean;
-    coupon_name?: string;
-    code?: string;
-    tour_date?: string;
-    message?: string;
-  } | null>(null);
+  const [searchResult, setSearchResult] = useState<any>(null);
   const [copied, setCopied] = useState(false);
 
   const handleCouponSearch = async () => {
@@ -177,6 +259,7 @@ export default function EventsPage() {
       setTimeout(() => setCopied(false), 2000);
     });
   };
+  */
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] pb-24">
@@ -197,25 +280,26 @@ export default function EventsPage() {
       </div>
 
       <div className="max-w-md mx-auto px-5 -mt-5 space-y-4">
-        {/* 내 쿠폰 확인하기 — 은은한 스타일 */}
-        <motion.button
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          onClick={() => setCouponModalOpen(true)}
-          className="w-full rounded-2xl border border-gray-200 bg-white/80 p-4 flex items-center justify-between active:scale-[0.98] transition-transform"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg border border-purple-200 bg-purple-50 flex items-center justify-center">
-              <Ticket className="w-4 h-4 text-purple-500" />
-            </div>
-            <div className="text-left">
-              <p className="text-sm font-medium text-gray-700">내 쿠폰 확인하기</p>
-              <p className="text-[11px] text-gray-400">투어 날짜 + 전화번호로 조회</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-gray-300" />
-        </motion.button>
 
-        {/* 리워드 미션 리스트 */}
+        {/* 시즌 프로모션 — DB에서 promotion=yes인 이벤트 */}
+        {promoEvents.length > 0 && (
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 text-orange-500" />
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">시즌 프로모션</p>
+            </div>
+            {promoEvents.map((evt, i) => (
+              <PromoCard
+                key={evt._id}
+                event={evt}
+                index={i}
+                onClick={() => router.push(`/cheiz/events/${evt._id}`)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* 크레딧 미션 리스트 */}
         <div id="reward-missions" className="space-y-3 pt-2">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">크레딧 미션</p>
@@ -231,13 +315,13 @@ export default function EventsPage() {
                 <div key={i} className="h-28 bg-white rounded-2xl animate-pulse" />
               ))}
             </div>
-          ) : events.length === 0 ? (
+          ) : activeEvents.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
               <Gift className="w-10 h-10 mx-auto mb-3 text-gray-300" />
               <p className="text-sm">현재 진행 중인 이벤트가 없습니다.</p>
             </div>
           ) : (
-            events.map((event, i) => (
+            activeEvents.map((event, i) => (
               <RewardCard
                 key={event._id}
                 event={event}
@@ -248,40 +332,29 @@ export default function EventsPage() {
           )}
         </div>
 
-        {/* 프로모션 매거진 */}
-        <div className="space-y-4 pt-4">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">시즌 프로모션</p>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-            className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#FF9A9E] to-[#FECFEF] p-6 min-h-[140px] flex flex-col justify-end cursor-pointer active:scale-[0.98] transition-transform shadow-sm"
-          >
-            <span className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm text-white text-[10px] font-bold px-3 py-1 rounded-full">SPRING</span>
-            <div className="text-white/40 mb-3"><Camera className="w-10 h-10" /></div>
-            <h3 className="text-xl font-bold text-white mb-1">봄 한정 벚꽃 스팟 오픈</h3>
-            <p className="text-sm text-white/80">인생샷 명소에서 특별한 추억을 남기세요</p>
-          </motion.div>
-        </div>
-
         {/* 종료된 이벤트 */}
-        <div className="space-y-3 pt-4">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">종료된 이벤트</p>
-          {[
-            { icon: <MapPin className="w-5 h-5 text-gray-400" />, title: "크리스마스 특별 촬영", date: "2025.12.01 ~ 2025.12.25" },
-            { icon: <Clock className="w-5 h-5 text-gray-400" />, title: "얼리버드 할인", date: "2025.11.01 ~ 2025.11.30" },
-          ].map((ev, i) => (
-            <motion.div key={ev.title} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 + i * 0.05 }}
-              className="bg-white rounded-2xl border border-gray-100 p-5 opacity-60">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">{ev.icon}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-600">{ev.title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{ev.date}</p>
+        {expiredEvents.length > 0 && (
+          <div className="space-y-3 pt-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">종료된 이벤트</p>
+            {expiredEvents.map((evt, i) => (
+              <motion.div key={evt._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 + i * 0.05 }}
+                className="bg-white rounded-2xl border border-gray-100 p-5 opacity-60">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                    <Clock className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-600">{evt.title}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {evt.expire_date ? `마감: ${evt.expire_date.slice(0, 10)}` : "기간 종료"}
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-full">종료</span>
                 </div>
-                <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-full">종료</span>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
 
         {/* 안내 */}
         <div className="pt-4 pb-4">
@@ -295,83 +368,6 @@ export default function EventsPage() {
           </div>
         </div>
       </div>
-
-      {/* 쿠폰 모달 */}
-      <AnimatePresence>
-        {couponModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end justify-center sm:items-center p-0 sm:p-6"
-            onClick={(e) => { if (e.target === e.currentTarget) setCouponModalOpen(false); }}>
-            <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
-              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 max-h-[85vh] overflow-y-auto">
-
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-gray-900">내 쿠폰 찾기</h3>
-                <button onClick={() => { setCouponModalOpen(false); setSearchResult(null); setTourDate(""); setPhone4(""); }}
-                  className="p-2 rounded-xl hover:bg-gray-100 active:scale-95"><X className="w-5 h-5 text-gray-400" /></button>
-              </div>
-
-              <p className="text-sm text-gray-500 mb-6">예약하신 투어 날짜와 전화번호 뒷 4자리를 입력하면 쿠폰 번호를 찾아드립니다.</p>
-
-              <div className="mb-4">
-                <label className="text-xs font-bold text-gray-500 mb-1.5 block">투어 날짜</label>
-                <input type="date" value={tourDate} onChange={(e) => setTourDate(e.target.value)}
-                  className="w-full h-12 px-4 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0055FF] focus:ring-1 focus:ring-[#0055FF]/20 transition-all" />
-              </div>
-
-              <div className="mb-6">
-                <label className="text-xs font-bold text-gray-500 mb-1.5 block">전화번호 뒷 4자리</label>
-                <input type="text" inputMode="numeric" maxLength={4} value={phone4}
-                  onChange={(e) => setPhone4(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  placeholder="0000"
-                  className="w-full h-12 px-4 border border-gray-200 rounded-xl text-sm text-center tracking-[0.5em] font-mono focus:outline-none focus:border-[#0055FF] focus:ring-1 focus:ring-[#0055FF]/20 transition-all placeholder:tracking-normal" />
-              </div>
-
-              <button onClick={handleCouponSearch} disabled={searching || !tourDate || phone4.length !== 4}
-                className="w-full h-12 bg-[#0055FF] text-white text-sm font-bold rounded-xl disabled:opacity-40 hover:bg-opacity-90 transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-                {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                {searching ? "검색 중..." : "쿠폰 찾기"}
-              </button>
-
-              <AnimatePresence mode="wait">
-                {searchResult && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mt-6">
-                    {searchResult.found ? (
-                      <div className="bg-gradient-to-br from-[#0055FF]/5 to-purple-50 rounded-2xl border border-[#0055FF]/20 p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center"><Check className="w-4 h-4 text-green-600" /></div>
-                          <p className="text-sm font-bold text-gray-900">쿠폰을 찾았습니다!</p>
-                        </div>
-                        <div className="space-y-2 mb-4">
-                          <div className="flex justify-between text-xs"><span className="text-gray-500">쿠폰명</span><span className="font-medium text-gray-800">{searchResult.coupon_name}</span></div>
-                        </div>
-                        <div className="bg-white rounded-xl p-4 flex items-center justify-between border border-gray-100">
-                          <div>
-                            <p className="text-[10px] text-gray-400 mb-1">쿠폰 코드</p>
-                            <p className="text-lg font-mono font-bold text-[#0055FF] tracking-wider">{searchResult.code}</p>
-                          </div>
-                          <button onClick={() => handleCopyCode(searchResult.code!)}
-                            className="px-4 py-2 bg-[#0055FF] text-white text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center gap-1.5">
-                            {copied ? <><Check className="w-3 h-3" /> 복사됨</> : <><Copy className="w-3 h-3" /> 복사</>}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-gray-50 rounded-2xl p-5 text-center">
-                        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gray-100 flex items-center justify-center">
-                          <Search className="w-5 h-5 text-gray-400" />
-                        </div>
-                        <p className="text-sm font-medium text-gray-600 mb-1">쿠폰을 찾지 못했습니다</p>
-                        <p className="text-xs text-gray-400">{searchResult.message || "투어 날짜와 전화번호를 다시 확인해주세요."}</p>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

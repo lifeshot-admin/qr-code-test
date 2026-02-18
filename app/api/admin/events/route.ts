@@ -31,6 +31,8 @@ export async function POST(request: Request) {
       sort_order: Number(body.sort_order) || 0,
       target_url: body.target_url || "",
       thumbnail_url: body.thumbnail_url || "",
+      promotion: body.promotion || "no",
+      expire_date: body.expire_date || "",
     };
 
     console.log("[API /admin/events POST] Bubble payload:", JSON.stringify(payload));

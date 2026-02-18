@@ -1590,6 +1590,8 @@ export type BubbleRewardEvent = {
   sort_order: number;
   target_url?: string;
   thumbnail_url?: string;
+  promotion?: string;
+  expire_date?: string;
   "Created Date"?: string;
   "Modified Date"?: string;
   [key: string]: any;

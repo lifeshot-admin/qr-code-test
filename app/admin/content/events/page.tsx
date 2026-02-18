@@ -20,6 +20,8 @@ type RewardEvent = {
   sort_order: number;
   target_url?: string;
   thumbnail_url?: string;
+  promotion?: string;
+  expire_date?: string;
 };
 
 const REWARD_TYPE_LABELS: Record<string, string> = {
@@ -48,6 +50,8 @@ const EMPTY_FORM: Partial<RewardEvent> = {
   sort_order: 0,
   target_url: "",
   thumbnail_url: "",
+  promotion: "no",
+  expire_date: "",
 };
 
 export default function EventsAdminPage() {
@@ -91,6 +95,8 @@ export default function EventsAdminPage() {
         sort_order: Number(form.sort_order) || 0,
         target_url: form.target_url || "",
         thumbnail_url: form.thumbnail_url || "",
+        promotion: form.promotion || "no",
+        expire_date: form.expire_date || "",
       };
 
       const method = editId ? "PATCH" : "POST";
@@ -136,6 +142,8 @@ export default function EventsAdminPage() {
       sort_order: evt.sort_order,
       target_url: evt.target_url,
       thumbnail_url: evt.thumbnail_url,
+      promotion: evt.promotion || "no",
+      expire_date: evt.expire_date || "",
     });
     setShowForm(true);
   };
@@ -201,12 +209,16 @@ export default function EventsAdminPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-semibold text-gray-900 truncate">{evt.title}</h3>
                   {evt.badge_text && <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">{evt.badge_text}</span>}
+                  {evt.promotion === "yes" && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">프로모션</span>}
                   <span className={`text-xs px-2 py-0.5 rounded-full ${REWARD_TYPE_COLORS[evt.reward_type] || "bg-gray-100 text-gray-600"}`}>
                     {REWARD_TYPE_LABELS[evt.reward_type] || evt.reward_type}
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 truncate">{evt.subtitle || "—"}</p>
-                <p className="text-xs text-gray-400 mt-1">+{evt.reward_amount} 크레딧 · 순서: {evt.sort_order}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  +{evt.reward_amount} 크레딧 · 순서: {evt.sort_order}
+                  {evt.expire_date && ` · 마감: ${evt.expire_date.slice(0, 10)}`}
+                </p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button onClick={() => handleEdit(evt)} className="p-2 hover:bg-gray-100 rounded-lg" title="수정">
@@ -282,6 +294,40 @@ export default function EventsAdminPage() {
                     onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                     min={0}
+                  />
+                </div>
+              </div>
+
+              {/* 프로모션 / 마감일 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">시즌 프로모션 (promotion)</label>
+                  <div className="flex items-center gap-3 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, promotion: form.promotion === "yes" ? "no" : "yes" })}
+                      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                        form.promotion === "yes" ? "bg-green-500" : "bg-gray-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow ${
+                          form.promotion === "yes" ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                    <span className={`text-sm font-medium ${form.promotion === "yes" ? "text-green-600" : "text-gray-500"}`}>
+                      {form.promotion === "yes" ? "Yes" : "No"}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">마감일 (expire_date)</label>
+                  <input
+                    type="date"
+                    value={form.expire_date ? form.expire_date.slice(0, 10) : ""}
+                    onChange={(e) => setForm({ ...form, expire_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
