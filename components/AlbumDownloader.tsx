@@ -46,8 +46,12 @@ export default function AlbumDownloader({
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
       try {
-        const res = await fetch(photo.url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // Vercel 프록시 경유: CORS 우회 + 깨진 URL 자동 수선
+        const proxyUrl = `/api/download?url=${encodeURIComponent(photo.url)}`;
+        console.log(`[DOWNLOAD] ${i + 1}/${photos.length} 프록시 요청:`, photo.url.substring(0, 80));
+
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error(`Proxy ${res.status}`);
 
         const blob = await res.blob();
         const ext = blob.type.includes("png") ? "png" : "jpg";
@@ -71,9 +75,8 @@ export default function AlbumDownloader({
       setFailed(fail);
       setProgress(Math.round(((ok + fail) / totalCount) * 100));
 
-      // 브라우저 연속 다운로드 throttle
       if (i < photos.length - 1) {
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 

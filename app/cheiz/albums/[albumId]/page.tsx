@@ -197,7 +197,7 @@ export default function AlbumDetailPage() {
                 onClick={() => openViewer(idx)}
                 className="aspect-square rounded-lg overflow-hidden bg-gray-100 relative active:scale-[0.97] transition-transform">
                 <SecureImage
-                  src={photo.thumbnailUrl || photo.albumPhotoUrl}
+                  src={`/api/download?url=${encodeURIComponent(photo.thumbnailUrl || photo.albumPhotoUrl)}`}
                   className="w-full h-full object-cover"
                   watermark={false}
                 />
@@ -264,7 +264,7 @@ export default function AlbumDetailPage() {
                 >
                   <div className="relative inline-block max-w-full max-h-full overflow-hidden">
                     <img
-                      src={photos[viewerIdx].albumPhotoUrl}
+                      src={`/api/download?url=${encodeURIComponent(photos[viewerIdx].albumPhotoUrl)}`}
                       alt=""
                       className="max-w-full max-h-[80vh] object-contain select-none"
                       draggable={false}
