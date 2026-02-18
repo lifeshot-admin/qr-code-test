@@ -8,28 +8,40 @@ const API_BASE_URL =
 /**
  * GET /api/backend/tours
  * 프록시: GET /api/v1/tours/search
- * 클라이언트 CORS 우회용 서버 사이드 프록시
+ *
+ * Swagger 규격:
+ *  - 언어: Accept-Language 헤더 (쿼리 파라미터 아님)
+ *  - 페이지네이션: page(1부터), size, sortBy, sortDir
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const viewLanguage = searchParams.get("viewLanguage") || "ko";
+    const lang = searchParams.get("lang") || "ko";
+    const page = searchParams.get("page") || "1";
+    const size = searchParams.get("size") || "10";
+    const sortBy = searchParams.get("sortBy") || "createdAt";
+    const sortDir = searchParams.get("sortDir") || "desc";
 
-    const url = `${API_BASE_URL}/api/v1/tours/search?viewLanguage=${viewLanguage}`;
-    console.log(`[TOURS_PROXY] GET ${url}`);
+    const queryParams = new URLSearchParams({ page, size, sortBy, sortDir });
+    const url = `${API_BASE_URL}/api/v1/tours/search?${queryParams.toString()}`;
+
+    console.log(`[TOURS_PROXY] GET ${url} | Accept-Language: ${lang}`);
 
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": lang,
+      },
       cache: "no-store",
     });
 
     const rawText = await res.text();
     console.log(`[TOURS_PROXY] Status: ${res.status} | Body length: ${rawText.length}`);
-    console.log(`[TOURS_PROXY] Body preview: ${rawText.substring(0, 300)}`);
+    console.log(`[TOURS_PROXY] Body preview: ${rawText.substring(0, 400)}`);
 
     if (!res.ok) {
       console.error(`[TOURS_PROXY] ❌ HTTP ${res.status}: ${rawText.substring(0, 500)}`);
-      return NextResponse.json({ data: [], error: `Backend ${res.status}` }, { status: res.status });
+      return NextResponse.json({ content: [], error: `Backend ${res.status}` }, { status: res.status });
     }
 
     let json: any;
@@ -37,18 +49,15 @@ export async function GET(request: NextRequest) {
       json = JSON.parse(rawText);
     } catch (parseErr) {
       console.error(`[TOURS_PROXY] ❌ JSON 파싱 실패:`, parseErr);
-      return NextResponse.json({ data: [], error: "Invalid JSON from backend", rawPreview: rawText.substring(0, 200) }, { status: 502 });
+      return NextResponse.json({ content: [], error: "Invalid JSON from backend" }, { status: 502 });
     }
 
-    console.log(`[TOURS_PROXY] ✅ 응답 키: ${Object.keys(json).join(", ")}`);
-    if (json.data) {
-      const d = json.data;
-      console.log(`[TOURS_PROXY] ✅ data 타입: ${Array.isArray(d) ? "array(" + d.length + ")" : typeof d}, content 존재: ${!!d.content}`);
-    }
+    const contentArr = json.content || json.data?.content || json.data || [];
+    console.log(`[TOURS_PROXY] ✅ 전달할 content 수: ${Array.isArray(contentArr) ? contentArr.length : "N/A"}`);
 
     return NextResponse.json(json);
   } catch (error: any) {
     console.error("[TOURS_PROXY] ❌ Exception:", error.message);
-    return NextResponse.json({ data: [], error: error.message }, { status: 500 });
+    return NextResponse.json({ content: [], error: error.message }, { status: 500 });
   }
 }

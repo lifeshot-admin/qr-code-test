@@ -8,6 +8,8 @@ const API_BASE_URL =
 /**
  * GET /api/backend/tours/[tourId]
  * 프록시: GET /api/v1/tours/search/{tourId}
+ *
+ * Swagger 규격: Accept-Language 헤더로 언어 전달
  */
 export async function GET(
   request: NextRequest,
@@ -15,20 +17,23 @@ export async function GET(
 ) {
   try {
     const { searchParams } = new URL(request.url);
-    const viewLanguage = searchParams.get("viewLanguage") || "ko";
+    const lang = searchParams.get("lang") || "ko";
     const tourId = params.tourId;
 
-    const url = `${API_BASE_URL}/api/v1/tours/search/${tourId}?viewLanguage=${viewLanguage}`;
-    console.log(`[TOUR_DETAIL_PROXY] GET ${url}`);
+    const url = `${API_BASE_URL}/api/v1/tours/search/${tourId}`;
+    console.log(`[TOUR_DETAIL_PROXY] GET ${url} | Accept-Language: ${lang}`);
 
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": lang,
+      },
       cache: "no-store",
     });
 
     const rawText = await res.text();
     console.log(`[TOUR_DETAIL_PROXY] Status: ${res.status} | Body length: ${rawText.length}`);
-    console.log(`[TOUR_DETAIL_PROXY] Body preview: ${rawText.substring(0, 300)}`);
+    console.log(`[TOUR_DETAIL_PROXY] Body preview: ${rawText.substring(0, 400)}`);
 
     if (!res.ok) {
       console.error(`[TOUR_DETAIL_PROXY] ❌ HTTP ${res.status}: ${rawText.substring(0, 500)}`);

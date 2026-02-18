@@ -7,39 +7,51 @@ const API_BASE_URL =
 
 /**
  * GET /api/backend/schedules-search
- * 프록시: GET /api/v1/schedules/search (Public, 인증 불필요)
- * 쿼리: ?tourId=29&viewLanguage=ko
+ * 프록시: GET /api/v1/schedules/search
+ *
+ * Swagger 규격: Accept-Language 헤더, tourId 쿼리 파라미터
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const tourId = searchParams.get("tourId") || "";
-    const viewLanguage = searchParams.get("viewLanguage") || "ko";
+    const lang = searchParams.get("lang") || searchParams.get("viewLanguage") || "ko";
 
     if (!tourId) {
-      return NextResponse.json({ data: [], error: "tourId required" }, { status: 400 });
+      return NextResponse.json({ content: [], error: "tourId required" }, { status: 400 });
     }
 
-    const url = `${API_BASE_URL}/api/v1/schedules/search?tourId=${tourId}&viewLanguage=${viewLanguage}`;
-    console.log(`[SCHEDULES_SEARCH_PROXY] GET ${url}`);
+    const queryParams = new URLSearchParams({ tourId });
+    const url = `${API_BASE_URL}/api/v1/schedules/search?${queryParams.toString()}`;
+    console.log(`[SCHEDULES_PROXY] GET ${url} | Accept-Language: ${lang}`);
 
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": lang,
+      },
       cache: "no-store",
     });
 
-    console.log(`[SCHEDULES_SEARCH_PROXY] Status: ${res.status}`);
+    const rawText = await res.text();
+    console.log(`[SCHEDULES_PROXY] Status: ${res.status} | Body length: ${rawText.length}`);
 
     if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      console.error(`[SCHEDULES_SEARCH_PROXY] ❌ HTTP ${res.status}: ${errorText.substring(0, 500)}`);
-      return NextResponse.json({ data: [], error: `Backend ${res.status}` }, { status: res.status });
+      console.error(`[SCHEDULES_PROXY] ❌ HTTP ${res.status}: ${rawText.substring(0, 500)}`);
+      return NextResponse.json({ content: [], error: `Backend ${res.status}` }, { status: res.status });
     }
 
-    const json = await res.json();
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      console.error(`[SCHEDULES_PROXY] ❌ JSON 파싱 실패`);
+      return NextResponse.json({ content: [], error: "Invalid JSON from backend" }, { status: 502 });
+    }
+
     return NextResponse.json(json);
   } catch (error: any) {
-    console.error("[SCHEDULES_SEARCH_PROXY] ❌ Exception:", error.message);
-    return NextResponse.json({ data: [], error: error.message }, { status: 500 });
+    console.error("[SCHEDULES_PROXY] ❌ Exception:", error.message);
+    return NextResponse.json({ content: [], error: error.message }, { status: 500 });
   }
 }

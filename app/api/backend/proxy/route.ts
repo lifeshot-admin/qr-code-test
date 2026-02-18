@@ -51,8 +51,9 @@ async function handleProxy(request: NextRequest, method: string) {
       headers["Authorization"] = sanitizeAuthHeader(accessToken);
     }
 
+    const clientLang = request.headers.get("accept-language");
     const userLan = (session as any)?.user?.lan || "ko";
-    headers["Accept-Language"] = userLan;
+    headers["Accept-Language"] = clientLang || userLan;
 
     const fetchOptions: RequestInit = {
       method,

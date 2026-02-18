@@ -85,10 +85,12 @@ type ApiResponse<T> = {
  * 반환: 현재 활성화된 투어 목록
  */
 export async function fetchTours(locale: string = "ko"): Promise<TourDetail[]> {
-  const params = new URLSearchParams({ viewLanguage: locale });
+  const serverParams = new URLSearchParams({ page: "1", size: "10", sortBy: "createdAt", sortDir: "desc" });
+  const clientParams = new URLSearchParams({ lang: locale, page: "1", size: "10", sortBy: "createdAt", sortDir: "desc" });
+
   const url = isServer
-    ? `${DIRECT_API_BASE}/api/v1/tours/search?${params.toString()}`
-    : `/api/backend/tours?${params.toString()}`;
+    ? `${DIRECT_API_BASE}/api/v1/tours/search?${serverParams.toString()}`
+    : `/api/backend/tours?${clientParams.toString()}`;
 
   try {
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
@@ -96,7 +98,10 @@ export async function fetchTours(locale: string = "ko"): Promise<TourDetail[]> {
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": locale,
+      },
       cache: "no-store",
     });
 
@@ -217,14 +222,16 @@ export async function fetchTourDetail(
     return null;
   }
 
-  const params = new URLSearchParams({ viewLanguage: locale });
   const url = isServer
-    ? `${DIRECT_API_BASE}/api/v1/tours/search/${numericId}?${params.toString()}`
-    : `/api/backend/tours/${numericId}?${params.toString()}`;
+    ? `${DIRECT_API_BASE}/api/v1/tours/search/${numericId}`
+    : `/api/backend/tours/${numericId}?lang=${locale}`;
 
   try {
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": locale,
+      },
       cache: "no-store",
     });
 
@@ -314,22 +321,20 @@ export async function fetchSchedules(
     return [];
   }
 
-  const params = new URLSearchParams({
-    tourId: String(numericId),
-    viewLanguage: locale,
-  });
   const url = isServer
-    ? `${DIRECT_API_BASE}/api/v1/schedules/search?${params.toString()}`
-    : `/api/backend/schedules-search?${params.toString()}`;
+    ? `${DIRECT_API_BASE}/api/v1/schedules/search?tourId=${numericId}`
+    : `/api/backend/schedules-search?tourId=${numericId}&lang=${locale}`;
 
   try {
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    console.log(`🔍 [fetchSchedules] GET ${url}`);
-    console.log(`🔢 [fetchSchedules] tourId: ${tourId} → Number: ${numericId} | locale: ${locale}`);
+    console.log(`🔍 [fetchSchedules] GET ${url} | Accept-Language: ${locale}`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": locale,
+      },
       cache: "no-store",
     });
 
