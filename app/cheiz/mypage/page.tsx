@@ -21,6 +21,7 @@ import {
   Globe,
   Loader2,
   FolderOpen,
+  Image,
 } from "lucide-react";
 import { useModal } from "@/components/GlobalModal";
 
@@ -35,6 +36,7 @@ export default function MyPage() {
   // ━━━ 카운트 ━━━
   const [couponCount, setCouponCount] = useState(0);
   const [tourCount, setTourCount] = useState(0);
+  const [albumCount, setAlbumCount] = useState(0);
 
   // ━━━ 프로필 편집 ━━━
   const [editingNickname, setEditingNickname] = useState(false);
@@ -178,7 +180,19 @@ export default function MyPage() {
       }
     }
 
-    Promise.all([fetchCouponCount(), fetchTourCount()]);
+    async function fetchAlbumCount() {
+      try {
+        const res = await fetch("/api/backend/albums");
+        const data = await res.json();
+        if (data.success && typeof data.count === "number") {
+          setAlbumCount(data.count);
+        } else if (data.success && Array.isArray(data.albums)) {
+          setAlbumCount(data.albums.length);
+        }
+      } catch {}
+    }
+
+    Promise.all([fetchCouponCount(), fetchTourCount(), fetchAlbumCount()]);
   }, [status, session]);
 
   // 외부 클릭으로 메뉴 닫기
@@ -458,22 +472,35 @@ export default function MyPage() {
         </motion.div>
       </div>
 
-      {/* ━━━ 상단 가로형 2버튼 (나의 예약 / 쿠폰) ━━━ */}
+      {/* ━━━ 상단 가로형 3버튼 (나의 예약 / 앨범 / 쿠폰) ━━━ */}
       <div className="max-w-md mx-auto px-5 py-2">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-          className="grid grid-cols-2 gap-3">
+          className="grid grid-cols-3 gap-2.5">
           <button onClick={() => router.push("/cheiz/my-tours")}
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center active:scale-95 transition-transform hover:shadow-md">
-            <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-[#0055FF]/10 flex items-center justify-center">
-              <FolderOpen className="w-5 h-5 text-[#0055FF]" />
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3.5 text-center active:scale-95 transition-transform hover:shadow-md">
+            <div className="w-9 h-9 mx-auto mb-1.5 rounded-xl bg-[#0055FF]/10 flex items-center justify-center">
+              <FolderOpen className="w-4.5 h-4.5 text-[#0055FF]" />
             </div>
             <p className="text-lg font-bold text-gray-900">{tourCount}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">나의 예약</p>
           </button>
+          <button onClick={() => router.push("/cheiz/albums")}
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3.5 text-center active:scale-95 transition-transform hover:shadow-md relative">
+            <div className="w-9 h-9 mx-auto mb-1.5 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <Image className="w-4.5 h-4.5 text-emerald-600" />
+            </div>
+            <p className="text-lg font-bold text-gray-900">{albumCount}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">앨범</p>
+            {albumCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
+                {albumCount > 99 ? "99+" : albumCount}
+              </span>
+            )}
+          </button>
           <button onClick={() => router.push("/cheiz/coupons")}
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center active:scale-95 transition-transform hover:shadow-md">
-            <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-amber-50 flex items-center justify-center">
-              <Ticket className="w-5 h-5 text-amber-500" />
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3.5 text-center active:scale-95 transition-transform hover:shadow-md">
+            <div className="w-9 h-9 mx-auto mb-1.5 rounded-xl bg-amber-50 flex items-center justify-center">
+              <Ticket className="w-4.5 h-4.5 text-amber-500" />
             </div>
             <p className="text-lg font-bold text-gray-900">{couponCount}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">쿠폰</p>

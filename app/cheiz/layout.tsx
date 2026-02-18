@@ -11,12 +11,13 @@ export default function CheizLayout({
 }) {
   const pathname = usePathname();
 
-  // ━━━ 메뉴바 숨김 경로: 예약 플로우 + 폴더 + 리터처 + 이벤트 상세 ━━━
+  // ━━━ 메뉴바 숨김 경로: 예약 플로우 + 폴더 + 리터처 + 이벤트 상세 + 앨범 상세 ━━━
   const isReserveFlow = pathname.startsWith("/cheiz/reserve");
   const isFolderFlow = pathname.startsWith("/cheiz/folder");
   const isRetoucherPage = pathname.startsWith("/cheiz/retoucher");
   const isEventDetail = /^\/cheiz\/events\/.+/.test(pathname);
-  const isImmersive = isReserveFlow || isFolderFlow || isRetoucherPage || isEventDetail;
+  const isAlbumDetail = /^\/cheiz\/albums\/.+/.test(pathname);
+  const isImmersive = isReserveFlow || isFolderFlow || isRetoucherPage || isEventDetail || isAlbumDetail;
 
   return (
     <Providers>

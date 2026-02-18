@@ -4,7 +4,6 @@ import { useState, useEffect, Suspense, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { loadStripe } from "@stripe/stripe-js";
 import {
   ArrowLeft, Download, Brush, CreditCard, Check,
   Loader2, Camera, Tag, ChevronDown, ChevronUp, Gift,
@@ -12,13 +11,6 @@ import {
   Ticket, ExternalLink, Sparkles, Copy, CheckCircle2,
 } from "lucide-react";
 import SecureImage from "@/components/SecureImage";
-
-// ━━━ Stripe 초기화 ━━━
-const STRIPE_PK = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
-const STRIPE_ENV = STRIPE_PK.startsWith("pk_test") ? "TEST" : STRIPE_PK.startsWith("pk_live") ? "LIVE" : "UNKNOWN";
-console.log(`[STRIPE] 🔑 키 확인 → 환경: ${STRIPE_ENV} | prefix: ${STRIPE_PK.substring(0, 15)}... | 전체길이: ${STRIPE_PK.length}`);
-if (!STRIPE_PK) console.error("[STRIPE] ❌ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY가 비어있습니다! .env.local 확인 후 서버 재시작 필요");
-const stripePromise = loadStripe(STRIPE_PK);
 
 // ━━━ 기본 단가 ━━━
 const DEFAULT_PHOTO_PRICE = 1000;
@@ -72,8 +64,11 @@ function RedeemContent() {
   const retouchPhotoIds = (searchParams.get("retouchPhotos") || "").split(",").filter(Boolean);
   const retoucherId = searchParams.get("retoucherId") || "";
 
-  const N = photoIds.length;
-  const M = retouchPhotoIds.length;
+  // Checkout 복귀 시 photos 쿼리가 없으므로 n/m 파라미터를 폴백으로 사용
+  const urlN = parseInt(searchParams.get("n") || "0", 10);
+  const urlM = parseInt(searchParams.get("m") || "0", 10);
+  const N = photoIds.length || urlN;
+  const M = retouchPhotoIds.length || urlM;
 
   // ━━━ 상태 ━━━
   const [processing, setProcessing] = useState(false);
@@ -168,26 +163,34 @@ function RedeemContent() {
     return p?.thumbnailUrl || p?.url || "";
   };
 
-  // ━━━ 결제 파이프라인: POST orders → POST payments → Stripe Elements ━━━
+  // ━━━ 결제 파이프라인: POST orders/photo → (0원: complete | 유료: Checkout) ━━━
   const handlePayment = useCallback(async () => {
     setProcessing(true);
     setError("");
 
     try {
-      // ━━━ Step A: 주문서 생성 (POST /api/v1/orders) ━━━
+      // ━━━ Step A: 크레딧 포함 주문서 생성 (POST /api/v1/orders/photo) ━━━
       setPaymentStep("주문서 생성 중...");
-      console.log("[PAYMENT] 🚀 Step A: 주문서 생성...");
+      console.log("[PAYMENT] 🚀 Step A: 크레딧 포함 주문서 생성...");
 
-      // ✅ [A] 백엔드 명세 준수: 모든 배열 필드 number[] + issuedCouponIds 필수
       const toInt = (v: any) => { const n = parseInt(String(v), 10); return isNaN(n) ? null : n; };
+
+      const credit: Record<string, number> = {};
+      if (photoCreditsUse > 0) credit.PHOTO = photoCreditsUse;
+      if (retouchCreditsUse > 0) credit.RETOUCH = retouchCreditsUse;
+
       const orderBody = {
         folderId: toInt(folderId) ?? folderId,
         rawPhotoIds: photoIds.map(toInt).filter((n): n is number => n !== null),
         detailPhotoIds: retouchPhotoIds.map(toInt).filter((n): n is number => n !== null),
         colorPhotoIds: [] as number[],
-        issuedCouponIds: [] as number[],  // ✅ 항상 빈 배열이라도 전송
+        issuedCouponIds: [] as number[],
         retoucherId: retoucherId ? Number(retoucherId) : null,
+        credit: Object.keys(credit).length > 0 ? credit : undefined,
       };
+
+      console.log("[PAYMENT] 📦 주문 body:", JSON.stringify(orderBody).substring(0, 600));
+      console.log("[PAYMENT] 🎫 credit:", JSON.stringify(credit), "| 프론트 계산 totalFinal:", totalFinal);
 
       const orderRes = await fetch("/api/backend/orders", {
         method: "POST",
@@ -203,12 +206,21 @@ function RedeemContent() {
       }
 
       const photoOrderId = orderData.orderId;
-      console.log("[PAYMENT] ✅ orderId 확보:", photoOrderId);
+      const backendPayment = orderData.totalPayment;
 
-      // ━━━ 0원 결제: Stripe 건너뛰고 백엔드 직접 완료 처리 ━━━
-      if (totalFinal <= 0) {
-        setPaymentStep("무료 앨범 생성 중...");
-        console.log("[PAYMENT] 💎 0원 결제 — 백엔드 직접 완료 처리");
+      // 프론트 강제 가드: 크레딧이 사진 수를 완전히 커버하면 무조건 0원 처리
+      const creditCoversAll = (photoCreditsUse >= N) && (M === 0 || retouchCreditsUse >= M);
+      const actualPayment = creditCoversAll ? 0 : (typeof backendPayment === "number" ? backendPayment : totalFinal);
+
+      console.log("[PAYMENT] ✅ orderId:", photoOrderId);
+      console.log("[PAYMENT]   백엔드 totalPayment:", backendPayment, "| 프론트 totalFinal:", totalFinal);
+      console.log("[PAYMENT]   크레딧 커버:", creditCoversAll, `(photo: ${photoCreditsUse}/${N}, retouch: ${retouchCreditsUse}/${M})`);
+      console.log("[PAYMENT]   → 최종 적용 금액:", actualPayment);
+
+      // ━━━ 0원 결제: Stripe 건너뛰고 백엔드 직접 완료 → 앨범 생성 ━━━
+      if (actualPayment <= 0) {
+        setPaymentStep("크레딧 결제 완료 처리 중...");
+        console.log("[PAYMENT] 💎 0원 결제 — POST /api/v1/payments/photo/" + photoOrderId);
 
         const freeRes = await fetch("/api/backend/payments/complete", {
           method: "POST",
@@ -219,10 +231,11 @@ function RedeemContent() {
         console.log("[PAYMENT] 📦 0원 완료 응답:", JSON.stringify(freeData).substring(0, 500));
 
         if (!freeData.success) {
-          console.error("[PAYMENT] 무료 결제 완료 실패:", freeData.error || "unknown");
+          console.error("[PAYMENT] 크레딧 결제 완료 실패:", freeData.error || "unknown");
           throw new Error("FREE_FAIL");
         }
 
+        console.log("[PAYMENT] ✅ 크레딧 결제 완료 → 앨범 생성 트리거 성공");
         setCompletedOrderId(String(photoOrderId));
         setCompletedN(N);
         setCompletedM(M);
@@ -231,108 +244,39 @@ function RedeemContent() {
         return;
       }
 
-      // ━━━ Step B: 결제 생성 (POST /api/v1/payments/photo/{photoOrderId}) ━━━
-      setPaymentStep("결제 정보 생성 중...");
-      console.log("[PAYMENT] 🚀 Step B: 결제 생성 — photoOrderId:", photoOrderId);
+      // ━━━ Step B: Stripe Checkout Session 생성 → 결제 페이지로 리다이렉트 ━━━
+      setPaymentStep("결제 페이지 준비 중...");
+      console.log("[PAYMENT] 🚀 Step B: Checkout Session — orderId:", photoOrderId, "| amount:", actualPayment);
 
-      const payRes = await fetch("/api/backend/payments", {
+      const checkoutRes = await fetch("/api/backend/payments/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photoOrderId }),
+        body: JSON.stringify({
+          photoOrderId,
+          amount: actualPayment,
+          folderId,
+          n: N,
+          m: M,
+          origin: window.location.origin,
+        }),
       });
-      const payData = await payRes.json();
-      console.log("[PAYMENT] 📦 결제 응답:", JSON.stringify(payData).substring(0, 500));
+      const checkoutData = await checkoutRes.json();
+      console.log("[PAYMENT] 📦 Checkout 응답:", JSON.stringify(checkoutData).substring(0, 500));
 
-      if (!payData.success || !payData.clientSecret) {
-        console.error("[PAYMENT] clientSecret 확보 실패:", payData.error || "missing");
+      if (!checkoutData.success || !checkoutData.url) {
+        console.error("[PAYMENT] Checkout URL 확보 실패:", checkoutData.error || "URL 없음");
         throw new Error("PAY_FAIL");
       }
 
-      const clientSecret = payData.clientSecret;
-      console.log("[PAYMENT] ✅ clientSecret 확보 (길이:", clientSecret.length, ")");
-
-      // ━━━ Step C: Stripe 결제 실행 ━━━
-      setPaymentStep("결제창 실행 중...");
-
-      const stripe = await stripePromise;
-      console.log("[PAYMENT] 🔑 Stripe 객체:", stripe ? "OK" : "NULL", "| 키 환경:", STRIPE_ENV, "| prefix:", STRIPE_PK.substring(0, 15));
-
-      if (!stripe) {
-        console.error("[PAYMENT] Stripe 초기화 실패 — STRIPE_PK:", STRIPE_PK ? "존재" : "비어있음");
-        throw new Error("STRIPE_INIT_FAIL");
-      }
-
-      // return_url: 결제 완료 후 리다이렉트될 주소
-      const returnUrl = new URL(`${window.location.origin}/cheiz/folder/${folderId}/redeem`);
-      returnUrl.searchParams.set("orderId", String(photoOrderId));
-      returnUrl.searchParams.set("n", String(N));
-      returnUrl.searchParams.set("m", String(M));
-      returnUrl.searchParams.set("paid", String(totalFinal));
-      console.log("[PAYMENT] 🔗 return_url:", returnUrl.toString());
-      console.log("[PAYMENT] 🎫 clientSecret prefix:", clientSecret.substring(0, 25) + "...");
-
-      // PaymentIntent → Stripe 호스팅 결제 페이지로 리다이렉트
-      const { error: stripeError } = await stripe.redirectToCheckout
-        ? await stripe.confirmPayment({
-            clientSecret,
-            confirmParams: { return_url: returnUrl.toString() },
-            redirect: "if_required",
-          })
-        : { error: { message: "Stripe API 미지원", code: "api_error", type: "api_error" } as any };
-
-      if (stripeError) {
-        console.error("[PAYMENT] ❌ Stripe 에러 (원문):", stripeError.message, "| code:", stripeError.code, "| type:", stripeError.type);
-
-        // payment_element 미존재 에러 → Stripe Checkout 방식으로 폴백
-        if (stripeError.message?.includes("payment_element") || stripeError.message?.includes("elements")) {
-          console.log("[PAYMENT] 📋 Elements 미존재 → confirmCardPayment 폴백 시도");
-
-          // PaymentIntent의 status가 이미 'requires_action'이면 리다이렉트 필요
-          const piResult = await stripe.retrievePaymentIntent(clientSecret);
-          console.log("[PAYMENT] 📋 PI status:", piResult.paymentIntent?.status);
-
-          if (piResult.paymentIntent?.status === "requires_action" && piResult.paymentIntent?.next_action?.redirect_to_url?.url) {
-            window.location.href = piResult.paymentIntent.next_action.redirect_to_url.url;
-            return;
-          }
-
-          // 일반 카드 결제 시도 (Elements 없이)
-          const cardResult = await stripe.confirmCardPayment(clientSecret, {
-            return_url: returnUrl.toString(),
-          });
-
-          if (cardResult.error) {
-            console.error("[PAYMENT] ❌ confirmCardPayment 에러:", cardResult.error.message);
-            throw new Error("STRIPE_CARD_FAIL");
-          }
-
-          if (cardResult.paymentIntent?.status === "succeeded") {
-            console.log("[PAYMENT] ✅ 결제 성공 (confirmCardPayment)");
-            window.location.href = returnUrl.toString() + "&redirect_status=succeeded";
-            return;
-          }
-
-          if (cardResult.paymentIntent?.status === "requires_action") {
-            console.log("[PAYMENT] 🔄 3D Secure 인증 필요 — 리다이렉트 대기");
-            return;
-          }
-        }
-
-        throw new Error("STRIPE_FAIL");
-      }
-
-      // confirmPayment 성공 시 (redirect: "if_required"로 인해 여기까지 올 수 있음)
-      console.log("[PAYMENT] ✅ confirmPayment 완료 — 리다이렉트 또는 즉시 성공");
+      console.log("[PAYMENT] ✅ Checkout URL 확보 → 결제 페이지로 이동");
+      window.location.href = checkoutData.url;
 
     } catch (e: any) {
-      console.error("[PAYMENT] ❌ 결제 파이프라인 에러 (원문):", e.message, e.stack);
-      // 디버깅용: 원문 에러를 UI에 임시 표시 (안정화 후 마스킹으로 복원)
-      const userMsg = e.message === "STRIPE_FAIL" || e.message === "STRIPE_CARD_FAIL"
-        ? "결제 처리 중 오류가 발생했습니다. 카드 정보를 확인하거나 잠시 후 다시 시도해 주세요."
-        : e.message === "ORDER_FAIL"
-        ? "주문 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."
-        : e.message === "PAY_FAIL"
-        ? "결제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+      console.error("[PAYMENT] ❌ 파이프라인 에러:", e.message, e.stack);
+      const userMsg =
+        e.message === "ORDER_FAIL" ? "주문 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."
+        : e.message === "PAY_FAIL" ? "결제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+        : e.message === "FREE_FAIL" ? "크레딧 결제 처리에 실패했습니다. 잠시 후 다시 시도해 주세요."
         : "결제 시스템 점검 중입니다. 잠시 후 다시 시도해 주세요.";
       setError(userMsg);
     } finally {
@@ -341,36 +285,76 @@ function RedeemContent() {
     }
   }, [folderId, photoIds, retouchPhotoIds, retoucherId, photoCreditsUse, retouchCreditsUse, totalFinal]);
 
-  // ━━━ Stripe 리다이렉트 복귀 상태 ━━━
+  // ━━━ Checkout 리다이렉트 복귀 상태 ━━━
   const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
   const [redirectStatus, setRedirectStatus] = useState<string | null>(null);
   const [completedN, setCompletedN] = useState(0);
   const [completedM, setCompletedM] = useState(0);
   const [completedPaid, setCompletedPaid] = useState(0);
   const [orderIdCopied, setOrderIdCopied] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
-    // Stripe는 리다이렉트 시 redirect_status, payment_intent 파라미터를 자동 추가
-    const stripeRedirectStatus = searchParams.get("redirect_status");
+    const checkoutSuccess = searchParams.get("checkout_success");
+    const checkoutCancelled = searchParams.get("checkout_cancelled");
+    const sessionId = searchParams.get("session_id");
     const orderId = searchParams.get("orderId");
     const paramN = parseInt(searchParams.get("n") || "0", 10);
     const paramM = parseInt(searchParams.get("m") || "0", 10);
     const paramPaid = parseInt(searchParams.get("paid") || "0", 10);
 
-    if (stripeRedirectStatus) {
-      setRedirectStatus(stripeRedirectStatus);
-      setCompletedOrderId(orderId);
-      setCompletedN(paramN || N);
-      setCompletedM(paramM || M);
-      setCompletedPaid(paramPaid);
+    // 결제 취소로 돌아온 경우 — 상태 복원 + URL 세탁
+    if (checkoutCancelled) {
+      if (paramN) setCompletedN(paramN);
+      if (paramM) setCompletedM(paramM);
+      if (orderId) setCompletedOrderId(orderId);
+      setError("결제가 취소되었습니다. 다시 시도해 주세요.");
 
-      if (stripeRedirectStatus === "succeeded") {
-        setDone(true);
-      } else if (stripeRedirectStatus === "failed" || stripeRedirectStatus === "requires_payment_method") {
-        setError("결제가 완료되지 않았습니다. 다시 시도해 주세요.");
-      }
+      // Stripe URL을 히스토리에서 제거 (뒤로가기 시 Stripe로 안 돌아감)
+      const cleanUrl = `${window.location.pathname}`;
+      window.history.replaceState(null, "", cleanUrl);
+      return;
     }
-  }, [searchParams, N, M]);
+
+    // 결제 성공으로 돌아온 경우 → 서버에서 Session 검증 + 앨범 생성 트리거
+    if (checkoutSuccess && sessionId && !done && !verifying) {
+      setVerifying(true);
+      setPaymentStep("결제 확인 중...");
+
+      console.log("[CHECKOUT_RETURN] 🔍 Session 검증 시작 — sessionId:", sessionId);
+
+      (async () => {
+        try {
+          const res = await fetch("/api/backend/payments/verify-checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId }),
+          });
+          const data = await res.json();
+          console.log("[CHECKOUT_RETURN] 📦 검증 응답:", JSON.stringify(data).substring(0, 500));
+
+          if (data.success) {
+            setCompletedOrderId(orderId || data.orderId);
+            setCompletedN(paramN || N);
+            setCompletedM(paramM || M);
+            setCompletedPaid(paramPaid);
+            setRedirectStatus("succeeded");
+            setDone(true);
+            // 성공 후에도 URL 세탁 — 새로고침 시 중복 검증 방지
+            window.history.replaceState(null, "", window.location.pathname);
+          } else {
+            setError(data.error || "결제 확인에 실패했습니다. 고객센터에 문의해 주세요.");
+          }
+        } catch (e: any) {
+          console.error("[CHECKOUT_RETURN] ❌ 검증 에러:", e.message);
+          setError("결제 확인 중 오류가 발생했습니다. 고객센터에 문의해 주세요.");
+        } finally {
+          setVerifying(false);
+          setPaymentStep("");
+        }
+      })();
+    }
+  }, [searchParams, N, M, done, verifying]);
 
   // ━━━ 주문번호 복사 ━━━
   const handleCopyOrderId = useCallback(() => {
@@ -382,111 +366,108 @@ function RedeemContent() {
     }
   }, [completedOrderId]);
 
-  // ━━━ 결제 완료 화면 ━━━
+  // ━━━ 결제/앨범 생성 완료 화면 ━━━
   if (done) {
     const displayN = completedN || N;
     const displayM = completedM || M;
     const displayPaid = completedPaid || totalFinal;
+    const nickname = (session?.user as any)?.nickname || (session?.user as any)?.name || "";
+    const firstThumb = allPhotos[0]?.thumbnailUrl || allPhotos[0]?.url || "";
 
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#FAFAF8] to-white flex items-center justify-center px-5">
+      <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#1a1a2e] flex flex-col items-center justify-center px-5 relative overflow-hidden">
+        {/* 배경 블러 사진 */}
+        {firstThumb && (
+          <div className="absolute inset-0 z-0">
+            <img src={firstThumb} alt="" className="w-full h-full object-cover opacity-20 blur-2xl scale-110" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/80" />
+          </div>
+        )}
+
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }} className="w-full max-w-sm">
+          transition={{ duration: 0.6 }} className="w-full max-w-sm relative z-10">
 
           {/* 성공 아이콘 */}
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-            className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shadow-lg shadow-green-500/30">
+            className="w-20 h-20 mx-auto mb-5 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shadow-lg shadow-green-500/30">
             <Check className="w-10 h-10 text-white" strokeWidth={3} />
           </motion.div>
 
           {/* 메인 메시지 */}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }} className="text-center mb-6">
-            <h2 className="text-2xl font-extrabold text-gray-900 mb-2">
-              {displayPaid > 0 ? "결제가 완료되었습니다!" : "무료 앨범이 생성되었습니다!"}
+            <h2 className="text-2xl font-extrabold text-white mb-2">
+              앨범 생성 완료!
             </h2>
-            <p className="text-sm text-gray-500 flex items-center justify-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              {displayPaid > 0 ? "앨범 생성을 시작합니다" : "크레딧으로 결제 완료"}
+            {nickname && (
+              <p className="text-sm text-white/70 mb-1">
+                {nickname}님의 Cheiz 앨범
+              </p>
+            )}
+            <p className="text-xs text-white/50 flex items-center justify-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              {displayPaid > 0 ? `${displayPaid.toLocaleString()}원 결제 완료` : "크레딧 결제 완료"}
             </p>
           </motion.div>
 
           {/* 주문 상세 카드 */}
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+            className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden mb-4">
 
-            {/* 주문번호 */}
             {completedOrderId && (
-              <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100">
+              <div className="px-5 py-3 border-b border-white/10">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-gray-400 font-medium">주문번호</span>
+                  <span className="text-[11px] text-white/40">주문번호</span>
                   <button onClick={handleCopyOrderId}
-                    className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-[#0055FF] active:scale-95 transition-all">
-                    <span className="font-mono font-bold text-gray-800">#{completedOrderId}</span>
-                    {orderIdCopied ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
+                    className="flex items-center gap-1.5 text-[11px] active:scale-95 transition-all">
+                    <span className="font-mono font-bold text-white/80">#{completedOrderId}</span>
+                    {orderIdCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5 text-white/40" />}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* 내역 */}
             <div className="px-5 py-4 space-y-2.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <Camera className="w-3.5 h-3.5 text-[#0055FF]" />
+                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                    <Download className="w-3.5 h-3.5 text-blue-400" />
                   </div>
-                  <span className="text-sm text-gray-700">사진 다운로드</span>
+                  <span className="text-sm text-white/80">사진 다운로드</span>
                 </div>
-                <span className="text-sm font-bold text-gray-900">{displayN}장</span>
+                <span className="text-sm font-bold text-white">{displayN}장</span>
               </div>
               {displayM > 0 && (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
-                      <Brush className="w-3.5 h-3.5 text-amber-600" />
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                      <Brush className="w-3.5 h-3.5 text-amber-400" />
                     </div>
-                    <span className="text-sm text-gray-700">리터칭 의뢰</span>
+                    <span className="text-sm text-white/80">리터칭 의뢰</span>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{displayM}장</span>
+                  <span className="text-sm font-bold text-white">{displayM}장</span>
                 </div>
               )}
             </div>
-
-            {/* 결제 금액 */}
-            <div className="px-5 py-3.5 bg-gradient-to-r from-[#0055FF] to-[#3377FF]">
-              <div className="flex items-center justify-between text-white">
-                <span className="text-sm font-medium text-white/80">결제 금액</span>
-                <span className="text-lg font-extrabold">
-                  {displayPaid > 0 ? `${displayPaid.toLocaleString()}원` : "0원 (크레딧 결제)"}
-                </span>
-              </div>
-            </div>
           </motion.div>
 
-          {/* 안내 메시지 */}
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             transition={{ delay: 0.6 }}
-            className="text-center text-[11px] text-gray-400 mb-6 leading-relaxed">
-            결제가 확인되면 앨범이 자동으로 생성됩니다.<br />
-            처리 완료 시 알림을 보내드립니다.
+            className="text-center text-[11px] text-white/30 mb-6 leading-relaxed">
+            앨범이 생성되었습니다. 사진을 확인하고 다운로드하세요.
           </motion.p>
 
           {/* 버튼 */}
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.7 }} className="flex gap-3">
             <button onClick={() => router.push(`/cheiz/folder/${folderId}`)}
-              className="flex-1 py-3.5 rounded-2xl bg-[#0055FF] text-white font-bold text-sm active:scale-[0.97] transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
-              <Camera className="w-4 h-4" /> 앨범으로
+              className="flex-1 py-3.5 rounded-2xl bg-[#0055FF] text-white font-bold text-sm active:scale-[0.97] transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2">
+              <Camera className="w-4 h-4" /> 앨범 확인
             </button>
-            <button onClick={() => router.push("/cheiz/my-tours")}
-              className="flex-1 py-3.5 rounded-2xl bg-gray-100 text-gray-600 font-medium text-sm active:scale-[0.97] transition-all flex items-center justify-center gap-2">
+            <button onClick={() => router.push("/cheiz/mypage")}
+              className="flex-1 py-3.5 rounded-2xl bg-white/10 backdrop-blur text-white/80 font-medium text-sm active:scale-[0.97] transition-all border border-white/10 flex items-center justify-center gap-2">
               <User className="w-4 h-4" /> 마이페이지
             </button>
           </motion.div>
@@ -502,7 +483,7 @@ function RedeemContent() {
       {/* Header */}
       <div className="bg-white border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-md mx-auto px-5 py-3 flex items-center justify-between">
-          <button onClick={() => router.back()} className="text-gray-500 text-sm flex items-center gap-1 active:scale-95">
+          <button onClick={() => router.push(`/cheiz/folder/${folderId}`)} className="text-gray-500 text-sm flex items-center gap-1 active:scale-95">
             <ArrowLeft className="w-4 h-4" /> 뒤로
           </button>
           <h1 className="text-sm font-bold text-gray-900">결제 확인</h1>
@@ -752,7 +733,7 @@ function RedeemContent() {
         </motion.div>
       </div>
 
-      {/* ━━━ 하단 결제 버튼 ━━━ */}
+      {/* ━━━ 하단 결제 버튼 (Step A: 주문 → Step B: Checkout 리다이렉트) ━━━ */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-md mx-auto px-5 py-3">
           {creditsLoading ? (
@@ -760,9 +741,9 @@ function RedeemContent() {
               <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
             </div>
           ) : (
-            <button onClick={handlePayment} disabled={processing}
+            <button onClick={handlePayment} disabled={processing || verifying}
               className="w-full h-14 bg-[#0055FF] text-white text-base font-bold rounded-2xl disabled:opacity-60 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">
-              {processing ? (
+              {processing || verifying ? (
                 <><Loader2 className="w-5 h-5 animate-spin" /> {paymentStep || "처리 중..."}</>
               ) : totalFinal > 0 ? (
                 <><CreditCard className="w-5 h-5" /> {totalFinal.toLocaleString()}원 결제하기</>

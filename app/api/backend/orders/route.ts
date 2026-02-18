@@ -7,11 +7,8 @@ export const dynamic = "force-dynamic";
 const API_BASE =
   process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
 
-// ━━━ POST /api/v1/orders — 주문서 생성 ━━━
-// ✅ 백엔드 명세 준수:
-//    rawPhotoIds (원본 사진), detailPhotoIds (리터칭 사진), colorPhotoIds (빈 배열)
-//    issuedCouponIds (쿠폰 ID 리스트)
-//    photoCreditsUsed 등 명세 밖 필드 제거
+// ━━━ POST /api/v1/orders/photo — 크레딧 포함 주문서 생성 ━━━
+// credit: { PHOTO: n, RETOUCH: m } 으로 크레딧 사용량 명시
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -24,45 +21,49 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    // ━━━ [A] 필드명 정규화 + 타입 강제 (number[]) ━━━
     const toIntArray = (arr: any): number[] => {
       if (!Array.isArray(arr)) return [];
       return arr.map((v: any) => typeof v === "number" ? v : parseInt(String(v), 10)).filter((n: number) => !isNaN(n));
     };
 
-    const normalizedBody = {
+    const normalizedBody: Record<string, any> = {
       folderId: typeof body.folderId === "number" ? body.folderId : parseInt(String(body.folderId), 10) || body.folderId,
-      // ✅ photoIds → rawPhotoIds (number[])
       rawPhotoIds: toIntArray(body.rawPhotoIds || body.photoIds),
-      // ✅ retouchPhotoIds → detailPhotoIds (number[])
       detailPhotoIds: toIntArray(body.detailPhotoIds || body.retouchPhotoIds),
-      // ✅ colorPhotoIds — 항상 빈 배열 (number[])
       colorPhotoIds: toIntArray(body.colorPhotoIds),
-      // ✅ issuedCouponIds — 항상 포함 (빈 배열이라도 전송!)
       issuedCouponIds: toIntArray(body.issuedCouponIds),
-      // ✅ retoucherId — null 허용
       retoucherId: body.retoucherId ? Number(body.retoucherId) : null,
     };
 
+    // credit 객체: 프론트에서 전달한 크레딧 사용량
+    if (body.credit && typeof body.credit === "object") {
+      normalizedBody.credit = {};
+      if (typeof body.credit.PHOTO === "number" && body.credit.PHOTO > 0) {
+        normalizedBody.credit.PHOTO = body.credit.PHOTO;
+      }
+      if (typeof body.credit.RETOUCH === "number" && body.credit.RETOUCH > 0) {
+        normalizedBody.credit.RETOUCH = body.credit.RETOUCH;
+      }
+    }
+
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("[ORDERS_API] 📡 주문 생성 요청");
+    console.log("[ORDERS_API] 📡 주문 생성 요청 → /api/v1/orders/photo");
     console.log("[ORDERS_API]   🌐 Accept-Language:", userLan);
-    console.log("[ORDERS_API]   📦 정규화된 body:", JSON.stringify(normalizedBody).substring(0, 600));
-    console.log("[ORDERS_API]   🔍 rawPhotoIds 개수:", normalizedBody.rawPhotoIds.length);
-    console.log("[ORDERS_API]   🔍 detailPhotoIds 개수:", normalizedBody.detailPhotoIds.length);
-    console.log("[ORDERS_API]   🔍 colorPhotoIds 개수:", normalizedBody.colorPhotoIds.length);
-    console.log("[ORDERS_API]   🎟️ issuedCouponIds:", JSON.stringify(normalizedBody.issuedCouponIds));
+    console.log("[ORDERS_API]   📦 body:", JSON.stringify(normalizedBody).substring(0, 600));
+    console.log("[ORDERS_API]   🔍 rawPhotoIds:", normalizedBody.rawPhotoIds.length, "장");
+    console.log("[ORDERS_API]   🔍 detailPhotoIds:", normalizedBody.detailPhotoIds.length, "장");
+    console.log("[ORDERS_API]   🎫 credit:", JSON.stringify(normalizedBody.credit || {}));
     console.log("[ORDERS_API]   👷 retoucherId:", normalizedBody.retoucherId);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     const authHeader = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
 
-    const res = await fetch(`${API_BASE}/api/v1/orders`, {
+    const res = await fetch(`${API_BASE}/api/v1/orders/photo`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": authHeader,
-        "Accept-Language": userLan,  // ✅ [B] 전역 언어 주입
+        "Accept-Language": userLan,
       },
       body: JSON.stringify(normalizedBody),
     });
@@ -81,14 +82,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: parsed.message || `Backend ${res.status}`, data: parsed }, { status: res.status });
     }
 
-    // data.id 추출 (다중 경로)
-    const orderId = parsed.data?.id || parsed.id || parsed.orderId || parsed.data?.orderId;
-    console.log("[ORDERS_API] ✅ 주문 생성 완료 — orderId:", orderId);
+    const data = parsed.data || parsed;
+    const orderId = data?.id || parsed.id || parsed.orderId || data?.orderId;
+    const totalPayment = data?.totalPayment ?? data?.totalAmount ?? null;
+
+    console.log("[ORDERS_API] ✅ 주문 생성 완료 — orderId:", orderId, "| totalPayment:", totalPayment);
 
     return NextResponse.json({
       success: true,
       orderId,
-      data: parsed.data || parsed,
+      totalPayment,
+      data,
     });
   } catch (e: any) {
     console.error("[ORDERS_API] ❌ 에러:", e.message);
