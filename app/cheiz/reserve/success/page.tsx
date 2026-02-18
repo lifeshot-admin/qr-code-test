@@ -28,6 +28,7 @@ function SuccessContent() {
   const folderIdParam = searchParams.get("folder_id");
   const sessionId = searchParams.get("session_id");
   const noPayment = searchParams.get("no_payment");
+  const preReservationId = searchParams.get("reservation_id");
 
   const {
     tourId,
@@ -82,6 +83,37 @@ function SuccessContent() {
     if (!session?.user?.id) return;
     if (processedRef.current) return;
 
+    // Checkout에서 이미 저장 완료 후 넘어온 경우 (reservation_id가 URL에 있음)
+    if (preReservationId) {
+      console.log(`[SUCCESS] 🎉 Checkout에서 이미 저장 완료! reservation_id: ${preReservationId}`);
+      processedRef.current = true;
+      setReservationId(preReservationId);
+      setCapturedSummary({
+        tourName: tour?.tour_name || "투어",
+        tourDate: tour?.tour_date || "",
+        totalGuests: guestCount.adults + guestCount.children || 1,
+        poseCount: getTotalSelectedCount(),
+        hasAiRetouching: aiRetouching,
+      });
+
+      // QR 코드만 생성
+      (async () => {
+        try {
+          const qrData = `${window.location.origin}/photographer/scan?reservation_id=${preReservationId}`;
+          const qrDataUrl = await QRCode.toDataURL(qrData, {
+            width: 280, margin: 2,
+            color: { dark: "#0055FF", light: "#FFFFFF" },
+          });
+          setQrCodeUrl(qrDataUrl);
+        } catch (e) {
+          console.warn("[SUCCESS] QR 생성 실패:", e);
+        }
+        setPhase("success");
+        setTimeout(() => clearAll(), 2000);
+      })();
+      return;
+    }
+
     const poseCount = getTotalSelectedCount();
 
     const effectiveTourId =
@@ -89,25 +121,18 @@ function SuccessContent() {
     const effectiveFolderId =
       folderId || (folderIdParam ? parseInt(folderIdParam, 10) : null);
 
-    // tourId는 필수, folderId는 없어도 STEP 0에서 새로 생성
     if (!effectiveTourId) {
-      if (poseCount === 0) {
-        // ✅ 포즈 0개 케이스에서도 요약 캡처
-        setCapturedSummary({
-          tourName: tour?.tour_name || "투어",
-          tourDate: tour?.tour_date || "",
-          totalGuests: guestCount.adults + guestCount.children || 1,
-          poseCount: 0,
-          hasAiRetouching: aiRetouching,
-        });
-        setPhase("success");
-        return;
-      }
+      return; // tourId가 올 때까지 대기 (빈 상태로 success 표시하지 않음)
+    }
+
+    if (poseCount === 0 && noPayment) {
+      // 0원 하이패스인데 포즈가 0 = Zustand 미복원. 잠시 대기 후 재시도
+      console.warn("[SUCCESS] ⚠️ poseCount=0, Zustand 미복원 가능성 → 1초 후 재시도");
       return;
     }
 
-    if (poseCount === 0) {
-      // ✅ 포즈 0개 케이스에서도 요약 캡처
+    if (poseCount === 0 && !noPayment) {
+      // Stripe 결제 후 돌아온 케이스: 포즈가 없어도 진행
       setCapturedSummary({
         tourName: tour?.tour_name || "투어",
         tourDate: tour?.tour_date || "",
@@ -115,13 +140,14 @@ function SuccessContent() {
         poseCount: 0,
         hasAiRetouching: aiRetouching,
       });
-      setPhase("success");
+      processedRef.current = true;
+      processReservation(effectiveTourId, effectiveFolderId, session.user.id);
       return;
     }
 
     processedRef.current = true;
     processReservation(effectiveTourId, effectiveFolderId, session.user.id);
-  }, [status, session, tourId, folderId, tourIdParam, folderIdParam]);
+  }, [status, session, tourId, folderId, tourIdParam, folderIdParam, preReservationId]);
 
   const processReservation = async (
     effectiveTourId: number,

@@ -447,6 +447,118 @@ function CheckoutContent() {
     }
   };
 
+  // ━━━ 0원 하이패스: Checkout에서 직접 저장 후 Success로 이동 ━━━
+  const performFreeReservation = async (effectiveTourId: string | number, effectiveFolderId: string | number | null): Promise<string | null> => {
+    if (!session?.user?.id) throw new Error("세션 정보가 없습니다. 다시 로그인해주세요.");
+
+    const userId = session.user.id;
+    let finalFolderId = effectiveFolderId;
+    let step0Done = false;
+    let step1Done = false;
+    let step2Done = false;
+
+    // ━━━ STEP 0: 백엔드 폴더 생성 ━━━
+    console.log("[CHECKOUT_SAVE] 📁 Step 0: 백엔드 폴더 생성...");
+    const folderPayload = {
+      scheduleId: useReservationStore.getState().scheduleId || effectiveTourId,
+      name: tour?.tour_name || "촬영 예약",
+      hostUserId: userId,
+      personCount: guestCount.adults || 1,
+    };
+
+    const folderRes = await fetch("/api/backend/create-folder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(folderPayload),
+    });
+
+    if (!folderRes.ok) {
+      const errText = await folderRes.text();
+      console.error(`[CHECKOUT_SAVE] ❌ Step 0 실패 (${folderRes.status}): ${errText.substring(0, 200)}`);
+      throw new Error(`백엔드 폴더 생성 실패 (HTTP ${folderRes.status})`);
+    }
+
+    const folderData = await folderRes.json();
+    if (folderData.folderId) {
+      finalFolderId = folderData.folderId;
+    }
+    step0Done = true;
+    console.log(`[CHECKOUT_SAVE] ✅ Step 0: Java Saved (folderId: ${finalFolderId})`);
+
+    // ━━━ STEP 1: Bubble pose_reservation 생성 ━━━
+    console.log("[CHECKOUT_SAVE] 🏰 Step 1: Bubble pose_reservation...");
+    const step1Payload = {
+      folder_Id: finalFolderId,
+      tour_Id: effectiveTourId,
+      user_Id: userId,
+      user_nickname: session.user.nickname || session.user.name || "",
+      persona: useReservationStore.getState().persona
+        ? JSON.stringify({ count: guestCount.adults, category: useReservationStore.getState().persona })
+        : "",
+    };
+
+    const step1Res = await fetch("/api/bubble/pose-reservation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(step1Payload),
+    });
+
+    if (!step1Res.ok) {
+      const err = await step1Res.json().catch(() => ({ error: "Unknown error" }));
+      console.error("[CHECKOUT_SAVE] ❌ Step 1 실패:", err);
+      throw new Error(err.error || "Bubble 예약 생성 실패");
+    }
+
+    const step1Data = await step1Res.json();
+    if (!step1Data.success || !step1Data.reservation_id) {
+      throw new Error("Bubble이 reservation_id를 반환하지 않았습니다.");
+    }
+
+    const bubbleReservationId = step1Data.reservation_id;
+    const bubbleReservationCode = step1Data.reservation_code || "";
+    step1Done = true;
+    console.log(`[CHECKOUT_SAVE] ✅ Step 1: Bubble Saved (id: ${bubbleReservationId}, code: ${bubbleReservationCode})`);
+
+    // ━━━ STEP 2: Bubble reserved_pose 생성 ━━━
+    console.log("[CHECKOUT_SAVE] 📸 Step 2: reserved_pose 레코드...");
+    const spotSelectionsState = useReservationStore.getState().spotSelections;
+    const selectedPoses: { spot_pose_id: string; spot_id: number; spot_name: string }[] = [];
+    Object.values(spotSelectionsState).forEach((spot) => {
+      spot.selectedPoses.forEach((poseId) => {
+        selectedPoses.push({ spot_pose_id: poseId, spot_id: spot.spotId, spot_name: spot.spotName });
+      });
+    });
+
+    if (selectedPoses.length > 0) {
+      const step2Res = await fetch("/api/bubble/reserved-pose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pose_reservation_id: bubbleReservationId, selected_poses: selectedPoses }),
+      });
+
+      if (!step2Res.ok) {
+        const err = await step2Res.json().catch(() => ({ error: "Unknown error" }));
+        console.error("[CHECKOUT_SAVE] ❌ Step 2 실패:", err);
+        throw new Error(err.error || "포즈 저장 실패");
+      }
+      step2Done = true;
+      console.log(`[CHECKOUT_SAVE] ✅ Step 2: Poses Saved (${selectedPoses.length}개)`);
+    } else {
+      step2Done = true;
+      console.log("[CHECKOUT_SAVE] ⚠️ Step 2: 선택된 포즈 없음 (스킵)");
+    }
+
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`[CHECKOUT_SAVE] ✅ Step 0: ${step0Done ? "Java Saved" : "Failed"}`);
+    console.log(`[CHECKOUT_SAVE] ✅ Step 1: ${step1Done ? "Bubble Saved" : "Failed"}`);
+    console.log(`[CHECKOUT_SAVE] ✅ Step 2: ${step2Done ? "Poses Saved" : "Failed"}`);
+    console.log(`[CHECKOUT_SAVE] 🆔 Reservation ID: ${bubbleReservationId}`);
+    console.log(`[CHECKOUT_SAVE] 🔢 Reservation Code: ${bubbleReservationCode}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    return bubbleReservationId;
+  };
+
   // ━━━ 결제/예약 확정 ━━━
   const handleCheckout = async () => {
     if (finalAmount > 0 && finalAmount < 500) { await showAlert("결제 최소 금액은 500원입니다."); return; }
@@ -454,14 +566,27 @@ function CheckoutContent() {
     try {
       const safeTourId = tourIdParam || tourId;
       const safeFolderId = folderIdParam || folderId;
-      // 0원 하이패스
+
+      // 0원 하이패스: 먼저 저장 완료 후 이동
       if (finalAmount === 0) {
-        console.log("[CHECKOUT] 🎉 0원 하이패스! Stripe 건너뛰고 즉시 예약 확정");
-        let url = `/cheiz/reserve/success?tour_id=${safeTourId}&no_payment=true`;
+        console.log("[CHECKOUT] 🎉 0원 하이패스! 저장 먼저 수행 후 Success로 이동");
+
+        const reservationId = await performFreeReservation(safeTourId!, safeFolderId);
+        if (!reservationId) {
+          throw new Error("예약 ID를 받지 못했습니다.");
+        }
+
+        // 저장 완료 후 스토어 정리
+        const { clearAll } = useReservationStore.getState();
+        clearAll();
+
+        let url = `/cheiz/reserve/success?tour_id=${safeTourId}&no_payment=true&reservation_id=${reservationId}`;
         if (safeFolderId) url += `&folder_id=${safeFolderId}`;
         router.push(url);
         return;
       }
+
+      // 유료 결제
       const res = await fetch("/api/stripe/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -474,7 +599,14 @@ function CheckoutContent() {
       });
       const data = await res.json();
       if (data.skipPayment) {
-        let url = `/cheiz/reserve/success?tour_id=${safeTourId}&no_payment=true`;
+        console.log("[CHECKOUT] 🎉 서버가 skipPayment 반환! 저장 먼저 수행");
+        const reservationId = await performFreeReservation(safeTourId!, safeFolderId);
+        if (!reservationId) throw new Error("예약 ID를 받지 못했습니다.");
+
+        const { clearAll } = useReservationStore.getState();
+        clearAll();
+
+        let url = `/cheiz/reserve/success?tour_id=${safeTourId}&no_payment=true&reservation_id=${reservationId}`;
         if (safeFolderId) url += `&folder_id=${safeFolderId}`;
         router.push(url);
       } else if (data.url) {
@@ -482,8 +614,13 @@ function CheckoutContent() {
       } else {
         await showError("결제 세션 생성에 실패했습니다.", { showKakaoLink: true });
       }
-    } catch {
-      await showError("결제 처리 중 오류가 발생했습니다.", { showKakaoLink: true });
+    } catch (err: any) {
+      console.error("[CHECKOUT] ❌ 예약/결제 실패:", err);
+      try {
+        await showError(`예약 처리 중 오류가 발생했습니다.\n${err.message || "다시 시도해주세요."}`, { showKakaoLink: true });
+      } catch {
+        window.alert(`예약 실패: ${err.message}`);
+      }
     } finally {
       setProcessing(false);
     }
