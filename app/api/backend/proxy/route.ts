@@ -31,6 +31,25 @@ async function handleProxy(request: NextRequest, method: string) {
       return NextResponse.json({ error: "path query parameter required" }, { status: 400 });
     }
 
+    // Body를 세션 조회보다 먼저 읽음 (스트림 1회 소비 문제 방지)
+    let requestBody: string | undefined;
+    if (method !== "GET" && method !== "HEAD") {
+      try {
+        requestBody = await request.text();
+        if (requestBody) {
+          // JSON 유효성 검증 후 다시 직렬화하여 깨진 데이터 전달 방지
+          const parsed = JSON.parse(requestBody);
+          requestBody = JSON.stringify(parsed);
+          console.log(`[PROXY] ${method} body (${requestBody.length} chars): ${requestBody.substring(0, 300)}`);
+        } else {
+          console.warn(`[PROXY] ⚠️ ${method} body is EMPTY — 백엔드에 빈 요청이 전달됩니다`);
+        }
+      } catch (bodyErr: any) {
+        console.error(`[PROXY] ❌ Body read/parse failed: ${bodyErr.message}`);
+        // JSON 파싱 실패 시 원본 텍스트라도 전달
+      }
+    }
+
     const remainingParams = new URLSearchParams(searchParams);
     remainingParams.delete("path");
     const queryString = remainingParams.toString();
@@ -40,6 +59,7 @@ async function handleProxy(request: NextRequest, method: string) {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "Accept": "application/json",
     };
 
     const clientAuth = request.headers.get("authorization");
@@ -61,19 +81,8 @@ async function handleProxy(request: NextRequest, method: string) {
       cache: "no-store",
     };
 
-    if (method !== "GET" && method !== "HEAD") {
-      try {
-        const cloned = request.clone();
-        const body = await cloned.text();
-        if (body) {
-          fetchOptions.body = body;
-          console.log(`[PROXY] ${method} body preview (${body.length} chars): ${body.substring(0, 200)}`);
-        } else {
-          console.warn(`[PROXY] ${method} body is empty`);
-        }
-      } catch (bodyErr: any) {
-        console.error(`[PROXY] ❌ Failed to read request body: ${bodyErr.message}`);
-      }
+    if (requestBody) {
+      fetchOptions.body = requestBody;
     }
 
     const res = await fetch(targetUrl, fetchOptions);

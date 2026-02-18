@@ -312,10 +312,13 @@ function ReviewContent() {
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     setSubmitting(true);
+    let finalFolderId = folderId;
+    let step0Done = false;
+    let step1Done = false;
+    let step2Done = false;
 
     try {
       // ━━━ STEP 0: 백엔드 폴더 생성 (Backend First!) ━━━
-      let finalFolderId = folderId;
 
       console.log(`${getTimestamp()} 📁 [STEP 0] 백엔드 폴더 생성 API 호출...`);
       try {
@@ -377,7 +380,8 @@ function ReviewContent() {
         throw new Error("폴더 ID를 확보할 수 없습니다. 백엔드 응답을 확인하세요.");
       }
 
-      console.log(`${getTimestamp()} 📁 최종 확정 folderId: ${finalFolderId}`);
+      step0Done = true;
+      console.log(`${getTimestamp()} ✅ Step 0: Java Backend Folder Saved (folderId: ${finalFolderId})`);
 
       // ✅ [수정 모드] 기존 예약 삭제 후 재생성
       if (editMode && existingReservationId) {
@@ -454,6 +458,9 @@ function ReviewContent() {
         throw new Error("Bubble did not return reservation_id");
       }
 
+      step1Done = true;
+      console.log(`${getTimestamp()} ✅ Step 1: Bubble pose_reservation Saved (id: ${bubbleReservationId})`);
+
       // ✅ STEP 2: Create reserved_pose records (Detail Records)
       console.log(`${getTimestamp()} 🏰 [STEP 2] Creating reserved_pose records...`);
 
@@ -514,18 +521,17 @@ function ReviewContent() {
         throw new Error(step2Data.error || "Failed to create reserved_pose records");
       }
 
+      step2Done = true;
+
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log(`${getTimestamp()} ✅✅✅ [BUBBLE KINGDOM] Reservation completed!`);
+      console.log(`${getTimestamp()} ✅ Step 0: Java Saved     → folderId: ${finalFolderId}`);
+      console.log(`${getTimestamp()} ✅ Step 1: Bubble Saved   → reservationId: ${bubbleReservationId}`);
+      console.log(`${getTimestamp()} ✅ Step 2: Poses Saved    → created: ${step2Data.created_count}, failed: ${step2Data.failed_count || 0}`);
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log(`${getTimestamp()} 🆔 Reservation ID:`, bubbleReservationId);
-      console.log(`${getTimestamp()} 📸 Poses created:`, step2Data.created_count);
-      console.log(`${getTimestamp()} ❌ Poses failed:`, step2Data.failed_count || 0);
       
       if (step2Data.failed_count > 0) {
         console.warn(`${getTimestamp()} ⚠️ [WARNING] 일부 reserved_pose 저장 실패 (failed_count: ${step2Data.failed_count})`);
       }
-      
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
       // ✅ STEP 3: Set reservation ID for display
       setReservationId(bubbleReservationId);
@@ -601,14 +607,21 @@ function ReviewContent() {
 
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
+
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.error(`${getTimestamp()} ❌ [RESERVATION_FAILED]`);
-      console.error(`${getTimestamp()} 백엔드 폴더 생성: ${finalFolderId ? "🟢 Success (folderId=" + finalFolderId + ")" : "🔴 Failed"}`);
-      console.error(`${getTimestamp()} 버블 pose_reservation: ${reservationId ? "🟢 Success" : "🔴 Failed or not reached"}`);
-      console.error(`${getTimestamp()} Error: ${errMsg}`);
+      console.error(`${getTimestamp()} ❌ [RESERVATION_FAILED] Transaction Status:`);
+      console.error(`${getTimestamp()}   Step 0 (Java Backend):   ${step0Done ? "🟢 Success" : "🔴 Failed"}`);
+      console.error(`${getTimestamp()}   Step 1 (Bubble Reserve): ${step1Done ? "🟢 Success" : "🔴 Failed or not reached"}`);
+      console.error(`${getTimestamp()}   Step 2 (Bubble Poses):   ${step2Done ? "🟢 Success" : "🔴 Failed or not reached"}`);
+      console.error(`${getTimestamp()}   Error: ${errMsg}`);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
-      await showError(`예약 처리 중 오류가 발생했습니다.\n${errMsg}\n\n다시 시도해주세요.`);
+      try {
+        await showError(`예약 처리 중 오류가 발생했습니다.\n${errMsg}\n\n다시 시도해주세요.`);
+      } catch (modalErr) {
+        console.error("[RESERVATION] showError modal failed:", modalErr);
+        window.alert(`예약 실패: ${errMsg}`);
+      }
     } finally {
       setSubmitting(false);
     }

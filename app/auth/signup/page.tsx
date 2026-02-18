@@ -111,35 +111,28 @@ function SignupContent() {
   const [isVerified, setIsVerified] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
 
-  // 재발송 제한 로직 (localStorage 영속)
-  const RESEND_COOLDOWN_SEC = 15;
-  const RESEND_MAX_ATTEMPTS = 4;
-  const RESEND_BLOCK_DURATION_MS = 60 * 60 * 1000; // 1시간
-  const RESEND_STORAGE_KEY = "cheiz_resend_state";
+  // 재발송 Back-off 로직
+  const [resendCount, setResendCount] = useState(0); // 재발송 횟수 (최초 발송 제외)
+  const [resendBlocked, setResendBlocked] = useState(false); // 4회 이상 차단
 
-  const [resendCount, setResendCount] = useState(0);
-  const [resendBlocked, setResendBlocked] = useState(false);
+  // Back-off 쿨다운 시간 (초) 결정
+  // 1회: 즉시(0s), 2회: 30s, 3회: 60s, 4회+: 차단(30분 후 초기화)
+  const getResendCooldown = (count: number): number => {
+    switch (count) {
+      case 1: return 0;   // 1회 재발송 → 즉시 가능
+      case 2: return 30;  // 2회 재발송 → 30초 대기
+      case 3: return 60;  // 3회 재발송 → 60초 대기
+      default: return -1; // 4회 이상 → 차단
+    }
+  };
 
-  // localStorage에서 차단 상태 복원
+  // 30분 후 차단 해제 타이머
+  const resendBlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(RESEND_STORAGE_KEY);
-      if (stored) {
-        const { count, blockedUntil } = JSON.parse(stored);
-        if (blockedUntil && Date.now() < blockedUntil) {
-          setResendBlocked(true);
-          setResendCount(count || 0);
-          const remaining = blockedUntil - Date.now();
-          setTimeout(() => {
-            setResendBlocked(false);
-            setResendCount(0);
-            localStorage.removeItem(RESEND_STORAGE_KEY);
-          }, remaining);
-        } else {
-          localStorage.removeItem(RESEND_STORAGE_KEY);
-        }
-      }
-    } catch {}
+    return () => {
+      if (resendBlockTimerRef.current) clearTimeout(resendBlockTimerRef.current);
+    };
   }, []);
 
   // Nickname
@@ -323,26 +316,23 @@ function SignupContent() {
       resendCount: isResend ? resendCount + 1 : 0,
     });
 
-    // 재발송인 경우 제한 체크
+    // 재발송인 경우 Back-off 체크
     if (isResend) {
       const nextCount = resendCount + 1;
 
-      if (nextCount > RESEND_MAX_ATTEMPTS) {
+      // 4회 이상 → 차단
+      if (nextCount > 3) {
         setResendBlocked(true);
-        const blockedUntil = Date.now() + RESEND_BLOCK_DURATION_MS;
-        try {
-          localStorage.setItem(RESEND_STORAGE_KEY, JSON.stringify({ count: nextCount, blockedUntil }));
-        } catch {}
-        console.log(`[RESEND_LOG] Attempt: ${nextCount}, BLOCKED for 1 hour`);
-        showToast("재발송 횟수를 초과했습니다. 1시간 뒤에 다시 시도해주세요.", "error");
+        console.log(`[RESEND_LOG] Attempt: ${nextCount}, WaitTime: BLOCKED (30분)`);
+        showToast("재발송 횟수를 초과했습니다. 30분 뒤에 다시 시도하거나 고객센터에 문의해주세요.", "error");
 
-        setTimeout(() => {
+        // 30분(1800초) 후 차단 해제
+        resendBlockTimerRef.current = setTimeout(() => {
           setResendBlocked(false);
           setResendCount(0);
           setCountdown(0);
-          localStorage.removeItem(RESEND_STORAGE_KEY);
-          console.log("[RESEND_LOG] 1시간 경과 → 차단 해제");
-        }, RESEND_BLOCK_DURATION_MS);
+          console.log("[RESEND_LOG] 30분 경과 → 차단 해제, 카운트 초기화");
+        }, 30 * 60 * 1000);
         return;
       }
     }
@@ -354,8 +344,13 @@ function SignupContent() {
       if (isResend) {
         const newResendCount = resendCount + 1;
         setResendCount(newResendCount);
-        setCountdown(RESEND_COOLDOWN_SEC);
-        console.log(`[RESEND_LOG] Attempt: ${newResendCount}/${RESEND_MAX_ATTEMPTS}, Cooldown: ${RESEND_COOLDOWN_SEC}s`);
+        const cooldown = getResendCooldown(newResendCount);
+        console.log(`[RESEND_LOG] Attempt: ${newResendCount}, WaitTime: ${cooldown >= 0 ? cooldown + "s" : "BLOCKED"}`);
+
+        if (cooldown > 0) {
+          setCountdown(cooldown);
+        }
+        // cooldown === 0 이면 즉시 재발송 가능 (카운트다운 없음)
       } else {
         // 최초 발송: 3분 카운트다운
         setCountdown(180);
@@ -840,7 +835,7 @@ function SignupContent() {
                 재발송 횟수를 초과했습니다.
               </p>
               <p className="text-red-500 text-xs mt-1">
-                1시간 뒤에 다시 시도하거나 고객센터에 문의해주세요.
+                30분 뒤에 다시 시도하거나 고객센터에 문의해주세요.
               </p>
             </div>
           ) : (
@@ -866,7 +861,7 @@ function SignupContent() {
                       : "text-[#0055FF] hover:underline"
                   }`}
                 >
-                  {sendingCode ? "발송 중..." : `코드 재발송${resendCount > 0 ? ` (${resendCount}/${RESEND_MAX_ATTEMPTS})` : ""}`}
+                  {sendingCode ? "발송 중..." : `코드 재발송${resendCount > 0 ? ` (${resendCount}/3)` : ""}`}
                 </button>
               )}
             </div>
@@ -1130,17 +1125,9 @@ function SignupContent() {
               disabled={
                 submitting ||
                 checkingNickname ||
-                (currentStep === "terms" && !allRequiredTermsAgreed()) ||
-                (currentStep === "verify" && !isVerified) ||
-                (currentStep === "password" && (signupData.password.length < 8 || passwordStrength === "weak" || !passwordMatch || !signupData.confirmPassword))
+                (currentStep === "verify" && !isVerified)
               }
-              className={`flex-1 font-bold py-3 rounded-xl transition-all ${
-                (currentStep === "terms" && !allRequiredTermsAgreed()) ||
-                (currentStep === "verify" && !isVerified) ||
-                (currentStep === "password" && (signupData.password.length < 8 || passwordStrength === "weak" || !passwordMatch || !signupData.confirmPassword))
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-[#0055FF] text-white hover:bg-opacity-90 disabled:opacity-50"
-              }`}
+              className="flex-1 bg-[#0055FF] text-white font-bold py-3 rounded-xl hover:bg-opacity-90 transition-all disabled:opacity-50"
             >
               {currentStep === "profile"
                 ? submitting ? "가입 처리 중..." : "가입 완료"
