@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +9,7 @@ import {
   ChevronRight, Eye, Loader2, Wand2, AlertCircle, Info,
 } from "lucide-react";
 import { useModal } from "@/components/GlobalModal";
+import SecureImage from "@/components/SecureImage";
 
 // ━━━ 타입 ━━━
 type Photo = {
@@ -50,9 +51,27 @@ export default function FolderPage() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"original" | "ai">("ai");
+  const [slideDir, setSlideDir] = useState(0);
+  const touchStartX = useRef(0);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const viewerLoadedRef = useRef(false);
 
-  // 뷰어 열기: history entry 추가 → 뒤로가기 시 모달만 닫힘
+  const slideVariants = {
+    enter: (dir: number) => ({ x: dir >= 0 ? 300 : -300, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({ x: dir >= 0 ? -300 : 300, opacity: 0 }),
+  };
+
+  const viewerGoNext = () => {
+    if (viewerIndex < photos.length - 1) { setSlideDir(1); setViewerIndex(viewerIndex + 1); }
+  };
+  const viewerGoPrev = () => {
+    if (viewerIndex > 0) { setSlideDir(-1); setViewerIndex(viewerIndex - 1); }
+  };
+
   const openViewer = (idx: number) => {
+    setSlideDir(0);
     setViewerIndex(idx);
     setViewerOpen(true);
     window.history.pushState({ viewer: true }, "");
@@ -60,14 +79,46 @@ export default function FolderPage() {
   useEffect(() => {
     if (!viewerOpen) return;
     const onPopState = (e: PopStateEvent) => {
-      if (viewerOpen) {
-        e.preventDefault();
-        setViewerOpen(false);
-      }
+      if (viewerOpen) { e.preventDefault(); setViewerOpen(false); }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [viewerOpen]);
+
+  // Blob URL: S3 원본 주소 은닉 → onLoad 시 즉시 파쇄
+  useEffect(() => {
+    if (!viewerOpen || !photos[viewerIndex]) { setBlobUrl(null); return; }
+    const photo = photos[viewerIndex];
+    const srcUrl = viewMode === "ai" && photo.aiUrl ? photo.aiUrl : photo.url;
+    if (!srcUrl) { setBlobUrl(null); return; }
+
+    viewerLoadedRef.current = false;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(srcUrl);
+        if (cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        setBlobUrl(url);
+      } catch {
+        if (!cancelled) setBlobUrl(srcUrl);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [viewerOpen, viewerIndex, viewMode, photos]);
+
+  const handleViewerImageLoad = useCallback(() => {
+    viewerLoadedRef.current = true;
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+  }, []);
 
   // ━━━ 순서 기반 선택 ━━━
   const [selectedOrder, setSelectedOrder] = useState<(string | number)[]>([]);
@@ -614,9 +665,12 @@ export default function FolderPage() {
                 <motion.div key={photo.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
                   className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer"
                   onClick={() => openViewer(idx)}>
-                  <img src={photo.aiUrl || photo.thumbnailUrl || photo.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  <SecureImage
+                    src={photo.aiUrl || photo.thumbnailUrl || photo.url}
+                    className="w-full h-full object-cover select-none"
+                    watermark={true} />
 
-                  {isSelected && <div className="absolute inset-0 bg-[#0055FF]/20 pointer-events-none" />}
+                  {isSelected && <div className="absolute inset-0 bg-[#0055FF]/20 pointer-events-none z-[5]" />}
 
                   <button onClick={(e) => { e.stopPropagation(); toggleSelect(photo.id); }}
                     className="absolute top-1 right-1 w-9 h-9 flex items-center justify-center z-10">
@@ -628,7 +682,7 @@ export default function FolderPage() {
                   </button>
 
                   {photo.aiUrl && (
-                    <div className="absolute bottom-2 left-2 bg-purple-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <div className="absolute bottom-2 left-2 bg-purple-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5 z-[6]">
                       <Sparkles className="w-2.5 h-2.5" /> AI
                     </div>
                   )}
@@ -884,17 +938,17 @@ export default function FolderPage() {
         )}
       </AnimatePresence>
 
-      {/* ━━━ 상세 뷰어 (독립 레이어 — 뒤로가기 시 모달만 닫힘) ━━━ */}
+      {/* ━━━ 상세 뷰어 (양방향 슬라이드 + 워터마크 + 저장 방지) ━━━ */}
       <AnimatePresence>
         {viewerOpen && currentPhoto && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black z-[100] flex flex-col"
-            onDrag={() => {}}
-            style={{ touchAction: "none" }}>
+            onContextMenu={(e) => e.preventDefault()}
+            style={{ touchAction: "pan-y", WebkitTouchCallout: "none" } as React.CSSProperties}>
 
             {/* 헤더 */}
             <div className="flex items-center justify-between px-5 pt-[env(safe-area-inset-top)] py-3 relative z-10">
-              <button onClick={() => { window.history.back(); }} className="p-2 rounded-xl bg-white/10 active:scale-95">
+              <button onClick={() => window.history.back()} className="p-2 rounded-xl bg-white/10 active:scale-95">
                 <X className="w-5 h-5 text-white" />
               </button>
               <p className="text-white/60 text-sm font-medium">{viewerIndex + 1} / {photos.length}</p>
@@ -907,38 +961,68 @@ export default function FolderPage() {
               </button>
             </div>
 
-            {/* 스와이프 가능한 이미지 영역 */}
-            <motion.div className="flex-1 flex items-center justify-center relative overflow-hidden"
-              drag="x"
-              dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={0.15}
-              onDragEnd={(_e, info) => {
-                const swipeThreshold = 50;
-                if (info.offset.x < -swipeThreshold && viewerIndex < photos.length - 1) {
-                  setViewerIndex(viewerIndex + 1);
-                } else if (info.offset.x > swipeThreshold && viewerIndex > 0) {
-                  setViewerIndex(viewerIndex - 1);
-                }
+            {/* 스와이프 + 양방향 슬라이드 이미지 영역 */}
+            <div className="flex-1 relative overflow-hidden"
+              onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
+              onTouchEnd={(e) => {
+                const dx = e.changedTouches[0].clientX - touchStartX.current;
+                if (dx < -60) viewerGoNext();
+                else if (dx > 60) viewerGoPrev();
               }}>
 
-              <AnimatePresence mode="wait">
+              <AnimatePresence initial={false} custom={slideDir} mode="wait">
                 <motion.div
                   key={`${viewerIndex}-${viewMode}`}
-                  initial={{ opacity: 0, x: 60 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -60 }}
-                  transition={{ duration: 0.2 }}
-                  className="w-full h-full flex items-center justify-center px-4 relative"
+                  custom={slideDir}
+                  variants={slideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  className="absolute inset-0 flex items-center justify-center px-4"
+                  style={{ WebkitUserSelect: "none", userSelect: "none" } as React.CSSProperties}
                   onClick={() => toggleSelect(currentPhoto.id)}>
-                  <img
-                    src={viewMode === "ai" && currentPhoto.aiUrl ? currentPhoto.aiUrl : currentPhoto.url}
-                    alt="" className="max-w-full max-h-full object-contain rounded-lg select-none" draggable={false} />
 
-                  {/* 선택 시 반투명 오버레이 */}
+                  {/* 이미지 + 워터마크 + 방패를 하나의 래퍼로 — 사진 크기에만 한정 */}
+                  <div className="relative inline-block max-w-full max-h-full">
+                    {/* 이미지 (Blob URL → onLoad 즉시 파쇄) */}
+                    {blobUrl ? (
+                      <img src={blobUrl} alt="" draggable={false}
+                        onLoad={handleViewerImageLoad}
+                        className="max-w-full max-h-[75vh] object-contain rounded-lg block"
+                        style={{ pointerEvents: "none", WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" } as React.CSSProperties} />
+                    ) : (
+                      <div className="w-48 h-48 flex items-center justify-center">
+                        <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      </div>
+                    )}
+
+                    {/* 1단계: SVG 워터마크 — 사진 영역 내부에만 한정 */}
+                    {blobUrl && (
+                      <div className="absolute inset-0 pointer-events-none z-[2] rounded-lg overflow-hidden">
+                        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                          <defs>
+                            <pattern id="cheiz-wm" width="280" height="260" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+                              <text x="15" y="70" fill="white" fillOpacity="0.35" fontSize="34" fontWeight="700" fontFamily="system-ui, sans-serif">Cheiz</text>
+                              <text x="140" y="190" fill="white" fillOpacity="0.3" fontSize="28" fontWeight="600" fontFamily="system-ui, sans-serif">Cheiz</text>
+                            </pattern>
+                          </defs>
+                          <rect width="100%" height="100%" fill="url(#cheiz-wm)" />
+                        </svg>
+                      </div>
+                    )}
+
+                    {/* 2단계: 투명 방패 — 사진 영역 내부에만 한정 */}
+                    <div className="absolute inset-0 z-[3] rounded-lg"
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{ WebkitTouchCallout: "none" } as React.CSSProperties} />
+                  </div>
+
+                  {/* 선택 시 반투명 오버레이 (전체 화면) */}
                   <AnimatePresence>
                     {getSelectionIndex(currentPhoto.id) > 0 && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-black/40 pointer-events-none flex items-center justify-center">
+                        className="absolute inset-0 bg-black/40 pointer-events-none flex items-center justify-center z-[4]">
                         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
                           transition={{ type: "spring", stiffness: 300, damping: 20 }}
                           className="bg-[#0055FF] rounded-full w-20 h-20 flex items-center justify-center shadow-2xl">
@@ -949,7 +1033,7 @@ export default function FolderPage() {
                   </AnimatePresence>
                 </motion.div>
               </AnimatePresence>
-            </motion.div>
+            </div>
 
             {/* AI/원본 토글 스위치 */}
             {(currentPhoto.aiUrl || isAiFolder) && (
@@ -981,15 +1065,15 @@ export default function FolderPage() {
               </div>
             )}
 
-            {/* 좌우 버튼 (데스크톱용 fallback) */}
+            {/* 좌우 버튼 (데스크톱용) */}
             {viewerIndex > 0 && (
-              <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex - 1); }}
+              <button onClick={(e) => { e.stopPropagation(); viewerGoPrev(); }}
                 className="absolute left-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 z-10 hidden sm:flex">
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>
             )}
             {viewerIndex < photos.length - 1 && (
-              <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex + 1); }}
+              <button onClick={(e) => { e.stopPropagation(); viewerGoNext(); }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 rotate-180 z-10 hidden sm:flex">
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>

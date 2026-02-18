@@ -8,6 +8,7 @@ import {
   ArrowLeft, Brush, ChevronRight, Star, Loader2,
   SkipForward, Sparkles, CheckCheck,
 } from "lucide-react";
+import SecureImage from "@/components/SecureImage";
 
 // ━━━ 리터쳐 폴백 ━━━
 const RETOUCHER_FB = {
@@ -175,7 +176,7 @@ function RetouchSelectContent() {
               <motion.div key={photo.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.03 }}
                 className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer"
                 onClick={() => toggleRetouchSelect(String(photo.id))}>
-                <img src={photo.thumbnailUrl || photo.url} alt="" className="w-full h-full object-cover" />
+                <SecureImage src={photo.thumbnailUrl || photo.url} className="w-full h-full object-cover" watermark={true} />
 
                 {isSelected && <div className="absolute inset-0 bg-amber-500/20 pointer-events-none" />}
 

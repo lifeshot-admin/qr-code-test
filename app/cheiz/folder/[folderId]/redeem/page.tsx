@@ -11,6 +11,7 @@ import {
   Minus, Plus, Star, User, Mail, FileText, AlertCircle,
   Ticket, ExternalLink, Sparkles, Copy, CheckCircle2,
 } from "lucide-react";
+import SecureImage from "@/components/SecureImage";
 
 // ━━━ Stripe 초기화 ━━━
 const STRIPE_PK = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
@@ -197,16 +198,35 @@ function RedeemContent() {
       console.log("[PAYMENT] 📦 주문 응답:", JSON.stringify(orderData).substring(0, 500));
 
       if (!orderData.success || !orderData.orderId) {
-        throw new Error(orderData.error || "주문 생성 실패 — orderId를 받지 못했습니다.");
+        console.error("[PAYMENT] 주문 생성 실패:", orderData.error || "orderId 없음");
+        throw new Error("ORDER_FAIL");
       }
 
       const photoOrderId = orderData.orderId;
       console.log("[PAYMENT] ✅ orderId 확보:", photoOrderId);
 
-      // ━━━ 크레딧 전액 결제 시 Stripe 건너뛰기 ━━━
+      // ━━━ 0원 결제: Stripe 건너뛰고 백엔드 직접 완료 처리 ━━━
       if (totalFinal <= 0) {
-        setPaymentStep("크레딧 결제 처리 중...");
-        console.log("[PAYMENT] 💎 크레딧 전액 결제 — Stripe 불필요");
+        setPaymentStep("무료 앨범 생성 중...");
+        console.log("[PAYMENT] 💎 0원 결제 — 백엔드 직접 완료 처리");
+
+        const freeRes = await fetch("/api/backend/payments/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ photoOrderId }),
+        });
+        const freeData = await freeRes.json();
+        console.log("[PAYMENT] 📦 0원 완료 응답:", JSON.stringify(freeData).substring(0, 500));
+
+        if (!freeData.success) {
+          console.error("[PAYMENT] 무료 결제 완료 실패:", freeData.error || "unknown");
+          throw new Error("FREE_FAIL");
+        }
+
+        setCompletedOrderId(String(photoOrderId));
+        setCompletedN(N);
+        setCompletedM(M);
+        setCompletedPaid(0);
         setDone(true);
         return;
       }
@@ -224,49 +244,97 @@ function RedeemContent() {
       console.log("[PAYMENT] 📦 결제 응답:", JSON.stringify(payData).substring(0, 500));
 
       if (!payData.success || !payData.clientSecret) {
-        throw new Error(payData.error || "결제 생성 실패 — clientSecret을 받지 못했습니다.");
+        console.error("[PAYMENT] clientSecret 확보 실패:", payData.error || "missing");
+        throw new Error("PAY_FAIL");
       }
 
       const clientSecret = payData.clientSecret;
       console.log("[PAYMENT] ✅ clientSecret 확보 (길이:", clientSecret.length, ")");
 
-      // ━━━ Step C: Stripe Elements 결제 ━━━
+      // ━━━ Step C: Stripe 결제 실행 ━━━
       setPaymentStep("결제창 실행 중...");
 
       const stripe = await stripePromise;
+      console.log("[PAYMENT] 🔑 Stripe 객체:", stripe ? "OK" : "NULL", "| 키 환경:", STRIPE_ENV, "| prefix:", STRIPE_PK.substring(0, 15));
+
       if (!stripe) {
-        throw new Error("Stripe 초기화 실패");
+        console.error("[PAYMENT] Stripe 초기화 실패 — STRIPE_PK:", STRIPE_PK ? "존재" : "비어있음");
+        throw new Error("STRIPE_INIT_FAIL");
       }
 
-      // return_url에 주문 정보 포함 (리다이렉트 후 성공 화면용)
+      // return_url: 결제 완료 후 리다이렉트될 주소
       const returnUrl = new URL(`${window.location.origin}/cheiz/folder/${folderId}/redeem`);
       returnUrl.searchParams.set("orderId", String(photoOrderId));
       returnUrl.searchParams.set("n", String(N));
       returnUrl.searchParams.set("m", String(M));
       returnUrl.searchParams.set("paid", String(totalFinal));
+      console.log("[PAYMENT] 🔗 return_url:", returnUrl.toString());
+      console.log("[PAYMENT] 🎫 clientSecret prefix:", clientSecret.substring(0, 25) + "...");
 
-      const { error: stripeError } = await stripe.confirmPayment({
-        clientSecret,
-        confirmParams: {
-          return_url: returnUrl.toString(),
-        },
-      });
+      // PaymentIntent → Stripe 호스팅 결제 페이지로 리다이렉트
+      const { error: stripeError } = await stripe.redirectToCheckout
+        ? await stripe.confirmPayment({
+            clientSecret,
+            confirmParams: { return_url: returnUrl.toString() },
+            redirect: "if_required",
+          })
+        : { error: { message: "Stripe API 미지원", code: "api_error", type: "api_error" } as any };
 
-      // confirmPayment가 리다이렉트하지 않고 에러를 반환한 경우
       if (stripeError) {
-        console.error("[PAYMENT] Stripe 에러:", stripeError.message, "| code:", stripeError.code);
-        if (stripeError.message?.includes("No such payment_intent") || stripeError.code === "resource_missing") {
-          throw new Error(
-            `결제 환경 불일치: 현재 프론트엔드 키 = ${STRIPE_ENV} (${STRIPE_PK.substring(0, 12)}...). ` +
-            `백엔드 sk_키와 동일 환경인지 확인하세요.`
-          );
+        console.error("[PAYMENT] ❌ Stripe 에러 (원문):", stripeError.message, "| code:", stripeError.code, "| type:", stripeError.type);
+
+        // payment_element 미존재 에러 → Stripe Checkout 방식으로 폴백
+        if (stripeError.message?.includes("payment_element") || stripeError.message?.includes("elements")) {
+          console.log("[PAYMENT] 📋 Elements 미존재 → confirmCardPayment 폴백 시도");
+
+          // PaymentIntent의 status가 이미 'requires_action'이면 리다이렉트 필요
+          const piResult = await stripe.retrievePaymentIntent(clientSecret);
+          console.log("[PAYMENT] 📋 PI status:", piResult.paymentIntent?.status);
+
+          if (piResult.paymentIntent?.status === "requires_action" && piResult.paymentIntent?.next_action?.redirect_to_url?.url) {
+            window.location.href = piResult.paymentIntent.next_action.redirect_to_url.url;
+            return;
+          }
+
+          // 일반 카드 결제 시도 (Elements 없이)
+          const cardResult = await stripe.confirmCardPayment(clientSecret, {
+            return_url: returnUrl.toString(),
+          });
+
+          if (cardResult.error) {
+            console.error("[PAYMENT] ❌ confirmCardPayment 에러:", cardResult.error.message);
+            throw new Error("STRIPE_CARD_FAIL");
+          }
+
+          if (cardResult.paymentIntent?.status === "succeeded") {
+            console.log("[PAYMENT] ✅ 결제 성공 (confirmCardPayment)");
+            window.location.href = returnUrl.toString() + "&redirect_status=succeeded";
+            return;
+          }
+
+          if (cardResult.paymentIntent?.status === "requires_action") {
+            console.log("[PAYMENT] 🔄 3D Secure 인증 필요 — 리다이렉트 대기");
+            return;
+          }
         }
-        throw new Error(stripeError.message || "결제 처리 중 오류가 발생했습니다.");
+
+        throw new Error("STRIPE_FAIL");
       }
 
+      // confirmPayment 성공 시 (redirect: "if_required"로 인해 여기까지 올 수 있음)
+      console.log("[PAYMENT] ✅ confirmPayment 완료 — 리다이렉트 또는 즉시 성공");
+
     } catch (e: any) {
-      console.error("[PAYMENT] ❌ 결제 파이프라인 에러:", e.message);
-      setError(e.message);
+      console.error("[PAYMENT] ❌ 결제 파이프라인 에러 (원문):", e.message, e.stack);
+      // 디버깅용: 원문 에러를 UI에 임시 표시 (안정화 후 마스킹으로 복원)
+      const userMsg = e.message === "STRIPE_FAIL" || e.message === "STRIPE_CARD_FAIL"
+        ? "결제 처리 중 오류가 발생했습니다. 카드 정보를 확인하거나 잠시 후 다시 시도해 주세요."
+        : e.message === "ORDER_FAIL"
+        ? "주문 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."
+        : e.message === "PAY_FAIL"
+        ? "결제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+        : "결제 시스템 점검 중입니다. 잠시 후 다시 시도해 주세요.";
+      setError(userMsg);
     } finally {
       setProcessing(false);
       setPaymentStep("");
@@ -336,11 +404,11 @@ function RedeemContent() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }} className="text-center mb-6">
             <h2 className="text-2xl font-extrabold text-gray-900 mb-2">
-              주문이 완료되었습니다!
+              {displayPaid > 0 ? "결제가 완료되었습니다!" : "무료 앨범이 생성되었습니다!"}
             </h2>
             <p className="text-sm text-gray-500 flex items-center justify-center gap-1.5">
               <Sparkles className="w-4 h-4 text-amber-500" />
-              앨범 생성을 시작합니다
+              {displayPaid > 0 ? "앨범 생성을 시작합니다" : "크레딧으로 결제 완료"}
             </p>
           </motion.div>
 
@@ -437,7 +505,7 @@ function RedeemContent() {
           <button onClick={() => router.back()} className="text-gray-500 text-sm flex items-center gap-1 active:scale-95">
             <ArrowLeft className="w-4 h-4" /> 뒤로
           </button>
-          <h1 className="text-sm font-bold text-gray-900">최종 결제</h1>
+          <h1 className="text-sm font-bold text-gray-900">결제 확인</h1>
           <div className="w-12" />
         </div>
       </div>
@@ -476,10 +544,10 @@ function RedeemContent() {
                 const thumb = getPhotoThumb(id);
                 return (
                   <div key={id} className="relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
-                    {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" /> : (
+                    {thumb ? <SecureImage src={thumb} className="w-full h-full object-cover" watermark={true} /> : (
                       <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">{i + 1}</div>
                     )}
-                    <div className="absolute bottom-0 right-0 bg-[#0055FF] text-white text-[8px] font-bold w-4 h-4 rounded-tl-md flex items-center justify-center">{i + 1}</div>
+                    <div className="absolute bottom-0 right-0 bg-[#0055FF] text-white text-[8px] font-bold w-4 h-4 rounded-tl-md flex items-center justify-center z-[5]">{i + 1}</div>
                   </div>
                 );
               })}
@@ -514,10 +582,10 @@ function RedeemContent() {
                   const thumb = getPhotoThumb(id);
                   return (
                     <div key={id} className="relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
-                      {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" /> : (
+                      {thumb ? <SecureImage src={thumb} className="w-full h-full object-cover" watermark={true} /> : (
                         <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">{i + 1}</div>
                       )}
-                      <div className="absolute bottom-0 right-0 bg-amber-500 text-white text-[8px] font-bold w-4 h-4 rounded-tl-md flex items-center justify-center">{i + 1}</div>
+                      <div className="absolute bottom-0 right-0 bg-amber-500 text-white text-[8px] font-bold w-4 h-4 rounded-tl-md flex items-center justify-center z-[5]">{i + 1}</div>
                     </div>
                   );
                 })}
