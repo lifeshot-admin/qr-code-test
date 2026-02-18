@@ -124,6 +124,8 @@ async function apiCall<T>(
 ): Promise<SwaggerResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
   
+  console.log(`[apiCall] ${options.method || "GET"} ${url}`);
+
   const headers = await getHeaders(requireAuth);
   
   const finalHeaders = {
@@ -136,13 +138,22 @@ async function apiCall<T>(
     headers: finalHeaders,
   });
 
-    if (!response.ok) {
-    const error: SwaggerResponse = await response.json().catch(() => ({
-      statusCode: response.status,
-      message: "API request failed",
-      code: "ERROR",
-      data: null,
-    }));
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    console.error(`[apiCall] ❌ HTTP ${response.status} — ${url}`);
+    console.error(`[apiCall] 서버 응답: ${errorText.substring(0, 500)}`);
+
+    let error: SwaggerResponse;
+    try {
+      error = JSON.parse(errorText);
+    } catch {
+      error = {
+        statusCode: response.status,
+        message: errorText.substring(0, 200) || "API request failed",
+        code: "ERROR",
+        data: null,
+      };
+    }
 
     if (response.status === 401) {
       const errorCode = (error.code || "").toUpperCase();

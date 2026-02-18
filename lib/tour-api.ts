@@ -105,7 +105,10 @@ export async function fetchTours(locale: string = "ko"): Promise<TourDetail[]> {
     console.log(`📡 [fetchTours] HTTP Status: ${res.status}`);
 
     if (!res.ok) {
+      const errorBody = await res.text().catch(() => "(읽기 실패)");
       console.error(`❌ [fetchTours] HTTP ${res.status} — 데이터 수신 실패`);
+      console.error(`❌ [fetchTours] URL: ${url}`);
+      console.error(`❌ [fetchTours] 서버 응답: ${errorBody.substring(0, 500)}`);
       return [];
     }
 
@@ -198,7 +201,10 @@ export async function fetchTourDetail(
     });
 
     if (!res.ok) {
-      console.error(`[fetchTourDetail] HTTP ${res.status} — tourId: ${numericId}`);
+      const errorBody = await res.text().catch(() => "(읽기 실패)");
+      console.error(`❌ [fetchTourDetail] HTTP ${res.status} — tourId: ${numericId}`);
+      console.error(`❌ [fetchTourDetail] URL: ${url}`);
+      console.error(`❌ [fetchTourDetail] 서버 응답: ${errorBody.substring(0, 500)}`);
       return null;
     }
 
