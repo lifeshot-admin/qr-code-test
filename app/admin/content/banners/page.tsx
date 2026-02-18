@@ -1,29 +1,29 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, GripVertical, Loader2, ArrowLeft, ExternalLink } from "lucide-react";
+import { Plus, Edit2, Trash2, GripVertical, Loader2, ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
+import { useModal } from "@/components/GlobalModal";
 
 type HomeBanner = {
   _id: string;
   title: string;
   subtitle?: string;
-  image: string;
-  link_url?: string;
+  image_url: string;
+  target_url?: string;
   sort_order: number;
-  active: boolean;
 };
 
 const EMPTY_FORM: Partial<HomeBanner> = {
   title: "",
   subtitle: "",
-  image: "",
-  link_url: "",
+  image_url: "",
+  target_url: "",
   sort_order: 0,
-  active: true,
 };
 
 export default function BannersAdminPage() {
+  const { showConfirm, showSuccess, showError } = useModal();
   const [banners, setBanners] = useState<HomeBanner[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -49,25 +49,36 @@ export default function BannersAdminPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (editId) {
-        await fetch("/api/admin/banners", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: editId, ...form }),
-        });
-      } else {
-        await fetch("/api/admin/banners", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
+      const payload = {
+        title: form.title || "",
+        subtitle: form.subtitle || "",
+        image_url: form.image_url || "",
+        target_url: form.target_url || "",
+        sort_order: Number(form.sort_order) || 0,
+      };
+
+      const method = editId ? "PATCH" : "POST";
+      const body = editId ? { id: editId, ...payload } : payload;
+
+      const res = await fetch("/api/admin/banners", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.error || `HTTP ${res.status}`);
       }
+
       setShowForm(false);
       setEditId(null);
       setForm(EMPTY_FORM);
       await fetchData();
-    } catch (e) {
+      showSuccess(editId ? "배너가 수정되었습니다." : "배너가 등록되었습니다.");
+    } catch (e: any) {
       console.error("저장 실패:", e);
+      showError(`배너 저장에 실패했습니다.\n${e?.message || ""}`, { showKakaoLink: true });
     } finally {
       setSaving(false);
     }
@@ -78,34 +89,24 @@ export default function BannersAdminPage() {
     setForm({
       title: banner.title,
       subtitle: banner.subtitle,
-      image: banner.image,
-      link_url: banner.link_url,
+      image_url: banner.image_url,
+      target_url: banner.target_url,
       sort_order: banner.sort_order,
-      active: banner.active,
     });
     setShowForm(true);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("정말 삭제하시겠습니까?")) return;
+    const confirmed = await showConfirm("정말 삭제하시겠습니까?", { title: "배너 삭제", confirmText: "삭제", cancelText: "취소" });
+    if (!confirmed) return;
     try {
-      await fetch(`/api/admin/banners?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/banners?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("삭제 실패");
       await fetchData();
+      showSuccess("배너가 삭제되었습니다.");
     } catch (e) {
       console.error("삭제 실패:", e);
-    }
-  };
-
-  const handleToggleActive = async (banner: HomeBanner) => {
-    try {
-      await fetch("/api/admin/banners", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: banner._id, active: !banner.active }),
-      });
-      await fetchData();
-    } catch (e) {
-      console.error("토글 실패:", e);
+      showError("배너 삭제에 실패했습니다.");
     }
   };
 
@@ -138,22 +139,21 @@ export default function BannersAdminPage() {
         </button>
       </div>
 
-      {/* 배너 목록 */}
       {banners.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <p className="text-lg mb-2">등록된 배너가 없습니다</p>
-          <p className="text-sm">Bubble DB에 home_banner 테이블을 생성하고 데이터를 추가하세요.</p>
+          <p className="text-sm">위의 &apos;새 배너&apos; 버튼을 눌러 배너를 추가하세요.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {banners.map((banner, idx) => (
-            <div key={banner._id} className={`bg-white border rounded-xl p-4 flex items-center gap-4 transition-all ${banner.active ? "border-gray-200" : "border-gray-100 opacity-60"}`}>
+            <div key={banner._id} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4 transition-all">
               <div className="flex-shrink-0 text-gray-300">
                 <GripVertical className="w-5 h-5" />
               </div>
               <div className="w-24 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
-                {banner.image ? (
-                  <img src={banner.image} alt="" className="w-full h-full object-cover" />
+                {banner.image_url ? (
+                  <img src={banner.image_url} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">No Image</div>
                 )}
@@ -161,20 +161,17 @@ export default function BannersAdminPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">#{idx + 1}</span>
-                  <h3 className="font-semibold text-gray-900 truncate">{banner.title}</h3>
+                  <h3 className="font-semibold text-gray-900 truncate">{banner.title || "(제목 없음)"}</h3>
                 </div>
                 <p className="text-sm text-gray-500 truncate">{banner.subtitle || "—"}</p>
-                {banner.link_url && (
+                {banner.target_url && (
                   <div className="flex items-center gap-1 mt-1">
                     <ExternalLink className="w-3 h-3 text-blue-400" />
-                    <span className="text-xs text-blue-500 truncate">{banner.link_url}</span>
+                    <span className="text-xs text-blue-500 truncate">{banner.target_url}</span>
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => handleToggleActive(banner)} className="p-2 hover:bg-gray-100 rounded-lg" title={banner.active ? "비활성화" : "활성화"}>
-                  {banner.active ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5 text-gray-400" />}
-                </button>
                 <button onClick={() => handleEdit(banner)} className="p-2 hover:bg-gray-100 rounded-lg" title="수정">
                   <Edit2 className="w-4 h-4 text-gray-500" />
                 </button>
@@ -195,7 +192,7 @@ export default function BannersAdminPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">제목 *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">제목 (title) *</label>
                 <input
                   value={form.title || ""}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -204,7 +201,7 @@ export default function BannersAdminPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">부제목</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">부제목 (subtitle)</label>
                 <input
                   value={form.subtitle || ""}
                   onChange={(e) => setForm({ ...form, subtitle: e.target.value })}
@@ -213,37 +210,38 @@ export default function BannersAdminPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">이미지 URL *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">이미지 URL (image_url) *</label>
                 <input
-                  value={form.image || ""}
-                  onChange={(e) => setForm({ ...form, image: e.target.value })}
+                  value={form.image_url || ""}
+                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                   placeholder="https://..."
                 />
-                {form.image && (
+                {form.image_url && (
                   <div className="mt-2 w-full h-32 rounded-lg overflow-hidden bg-gray-50">
-                    <img src={form.image} alt="미리보기" className="w-full h-full object-cover" />
+                    <img src={form.image_url} alt="미리보기" className="w-full h-full object-cover" />
                   </div>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">연결 링크</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">연결 링크 (target_url)</label>
                 <input
-                  value={form.link_url || ""}
-                  onChange={(e) => setForm({ ...form, link_url: e.target.value })}
+                  value={form.target_url || ""}
+                  onChange={(e) => setForm({ ...form, target_url: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                   placeholder="/cheiz/events 또는 https://..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">노출 순서</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">노출 순서 (sort_order)</label>
                 <input
                   type="number"
-                  value={form.sort_order || 0}
+                  value={form.sort_order ?? 0}
                   onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                   min={0}
                 />
+                <p className="text-xs text-gray-400 mt-1">숫자가 작을수록 앞에 표시됩니다</p>
               </div>
             </div>
 
@@ -256,7 +254,7 @@ export default function BannersAdminPage() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.title || !form.image}
+                disabled={saving || !form.title || !form.image_url}
                 className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}

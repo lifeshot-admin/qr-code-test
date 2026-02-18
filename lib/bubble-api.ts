@@ -1579,20 +1579,17 @@ export type BubbleRewardEvent = {
   _id: string;
   title: string;
   subtitle?: string;
-  credit_type: "PHOTO" | "AI" | "RETOUCH";
-  credit_amount: number;
-  image?: string;
-  badge?: string;
-  active: boolean;
-  mission_type: "CLICK" | "PARTNER";
-  gift_id?: number;
-  target_url?: string;
-  main_image?: string;
+  badge_text?: string;
   benefit_desc?: string;
-  content_detail?: string;
-  condition_desc?: string;
-  button_text?: string;
-  sort_order?: number;
+  conditions?: string;
+  cta_text?: string;
+  description?: string;
+  image_url?: string;
+  reward_amount: number;
+  reward_type: string;
+  sort_order: number;
+  target_url?: string;
+  thumbnail_url?: string;
   "Created Date"?: string;
   "Modified Date"?: string;
   [key: string]: any;
@@ -1688,10 +1685,9 @@ export type BubbleHomeBanner = {
   _id: string;
   title: string;
   subtitle?: string;
-  image: string;
-  link_url?: string;
+  image_url: string;
+  target_url?: string;
   sort_order: number;
-  active: boolean;
   "Created Date"?: string;
   "Modified Date"?: string;
   [key: string]: any;
@@ -1805,6 +1801,45 @@ export async function fetchReviewsAdmin(
     const json: BubbleListResponse<BubbleReview> = await res.json();
     const results = json?.response?.results ?? [];
     const count = json?.response?.count ?? results.length;
+
+    if (results.length > 0) {
+      console.log("[fetchReviewsAdmin] 샘플 키:", Object.keys(results[0]).join(", "));
+    }
+
+    // 필드 정규화 (Bubble 필드명 차이 대응)
+    for (const item of results) {
+      const keys = Object.keys(item);
+
+      if (item["review"] === undefined) {
+        const reviewKey = keys.find(k =>
+          k.toLowerCase() === "review" || k.toLowerCase().includes("review")
+        );
+        if (reviewKey && reviewKey !== "review") {
+          item["review"] = item[reviewKey];
+        }
+      }
+
+      if (item["title"] === undefined) {
+        const titleKey = keys.find(k =>
+          k.toLowerCase() === "title" || k.toLowerCase().includes("title")
+        );
+        if (titleKey && titleKey !== "title") {
+          item["title"] = item[titleKey];
+        }
+      }
+
+      if (item["score"] === undefined) {
+        const scoreKey = keys.find(k =>
+          k.toLowerCase() === "score" ||
+          k.toLowerCase().includes("score") ||
+          k.toLowerCase().includes("rating") ||
+          k.toLowerCase() === "recommend"
+        );
+        if (scoreKey && scoreKey !== "score") {
+          item["score"] = Number(item[scoreKey]) || undefined;
+        }
+      }
+    }
 
     // User 조인
     const userIds = [...new Set(

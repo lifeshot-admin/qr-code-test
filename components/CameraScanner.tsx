@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import { useModal } from "@/components/GlobalModal";
 
 // ─── BarcodeDetector 타입 (브라우저 네이티브 API) ───
 declare global {
@@ -44,6 +45,7 @@ export function CameraScanner({
   showPortraitGuide = false,
   children,
 }: CameraScannerProps) {
+  const { showAlert, showError } = useModal();
   const videoRef = useRef<HTMLVideoElement>(null);
   const scanCanvasRef = useRef<HTMLCanvasElement>(null);
   const captureCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -479,10 +481,10 @@ export function CameraScanner({
                     // QR 성공과 동일한 플로우 진입
                     onQRSuccess?.(data.reservationId, `CODE_${codeInput}`);
                   } else {
-                    alert(data.message || "해당 코드와 일치하는 예약을 찾을 수 없습니다.");
+                    showAlert(data.message || "해당 코드와 일치하는 예약을 찾을 수 없습니다.");
                   }
                 } catch {
-                  alert("코드 확인 중 오류가 발생했습니다.");
+                  showError("코드 확인 중 오류가 발생했습니다.");
                 } finally {
                   setCodeSubmitting(false);
                 }

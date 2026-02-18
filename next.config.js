@@ -60,6 +60,13 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      // ✅ Kimi (폴백 이미지)
+      {
+        protocol: 'https',
+        hostname: 'kimi-web-img.moonshot.cn',
+        port: '',
+        pathname: '/**',
+      },
       // ✅ AWS S3 (Cheiz 프로덕션 이미지 버킷)
       {
         protocol: 'https',

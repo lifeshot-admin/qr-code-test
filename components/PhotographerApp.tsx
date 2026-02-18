@@ -6,6 +6,7 @@ import { CameraScanner, type ScanMode } from "@/components/CameraScanner";
 import type { PoseGuideItem } from "@/lib/bubble-api";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import imageCompression from "browser-image-compression";
+import { useModal } from "@/components/GlobalModal";
 
 const SESSION_KEY = "chiiz_session_count";
 
@@ -196,6 +197,7 @@ export function PhotographerApp() {
   const searchParams = useSearchParams();
   const page = searchParams.get("page") || "scan";
   const reservationParam = searchParams.get("reservation");
+  const { showError } = useModal();
 
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState<ScanMode>("qr");
@@ -349,11 +351,11 @@ export function PhotographerApp() {
       const errMsg = err?.message || String(err);
       console.error("❌ [업로드 에러]", errMsg);
       if (errMsg.includes("502") || errMsg.includes("Bubble")) {
-        alert("Bubble API 서버 연결 실패.\n환경 변수를 확인해주세요.");
+        showError("데이터 서버 연결에 실패했습니다.\n잠시 후 다시 시도해주세요.", { showKakaoLink: true });
       } else if (errMsg.includes("413") || errMsg.includes("too large")) {
-        alert("이미지 파일이 너무 큽니다.\n다시 촬영해 주세요.");
+        showError("이미지 파일이 너무 큽니다.\n다시 촬영해 주세요.");
       } else {
-        alert(`저장에 실패했습니다.\n${errMsg.substring(0, 100)}`);
+        showError("저장에 실패했습니다.\n다시 시도해주세요.", { showKakaoLink: true });
       }
       setShowUploadModal(true);
     }

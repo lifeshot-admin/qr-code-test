@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useReservationStore } from "@/lib/reservation-store";
 import { useHasMounted } from "@/lib/use-has-mounted";
+import { useModal } from "@/components/GlobalModal";
 import { CreditBalanceCard, GiftCouponCard } from "@/app/cheiz/components/CreditCard";
 import { fetchTourDetail, fetchSchedules } from "@/lib/tour-api";
 import { formatKSTTime, formatKSTDate, CREDIT_LABELS, formatCreditSummary } from "@/lib/utils";
@@ -192,6 +193,7 @@ function CheckoutContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showAlert, showError } = useModal();
   const tourIdParam = searchParams.get("tour_id");
   const folderIdParam = searchParams.get("folder_id");
   const cancelled = searchParams.get("cancelled");
@@ -447,7 +449,7 @@ function CheckoutContent() {
 
   // ━━━ 결제/예약 확정 ━━━
   const handleCheckout = async () => {
-    if (finalAmount > 0 && finalAmount < 500) { alert("결제 최소 금액은 500원입니다."); return; }
+    if (finalAmount > 0 && finalAmount < 500) { await showAlert("결제 최소 금액은 500원입니다."); return; }
     setProcessing(true);
     try {
       const safeTourId = tourIdParam || tourId;
@@ -478,10 +480,10 @@ function CheckoutContent() {
       } else if (data.url) {
         window.location.href = data.url;
       } else {
-        alert("결제 세션 생성에 실패했습니다.");
+        await showError("결제 세션 생성에 실패했습니다.", { showKakaoLink: true });
       }
     } catch {
-      alert("결제 처리 중 오류가 발생했습니다.");
+      await showError("결제 처리 중 오류가 발생했습니다.", { showKakaoLink: true });
     } finally {
       setProcessing(false);
     }

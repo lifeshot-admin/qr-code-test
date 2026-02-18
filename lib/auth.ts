@@ -379,7 +379,7 @@ export const authOptions: NextAuthOptions = {
       },
     }),
 
-    // Email/Password
+    // Email/Password (일반 사용자용)
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -442,10 +442,25 @@ export const authOptions: NextAuthOptions = {
             if (userMeResponse.ok) {
               const userMeData = await userMeResponse.json();
               const meData = userMeData.data || userMeData;
+
+              // ━━━ 전수 로그: /user/me 응답 전체 필드 (role 필드명 확인용) ━━━
+              console.log("🔍 [Login /user/me] 전체 키:", JSON.stringify(Object.keys(meData)));
+              console.log("🔍 [Login /user/me] 전체 데이터:", JSON.stringify(meData, null, 2));
+
               realUserId = meData.id || meData.user_id || meData.userId;
               realNickname = meData.nickname || meData.name;
               realProfileImage = meData.profile_image || meData.profile_img || meData.profileImage;
-              realRole = meData.role;
+
+              // ✅ role 필드 광범위 탐색
+              realRole = meData.role || meData.userRole || meData.authority || meData.user_role || meData.type;
+              if (!realRole && Array.isArray(meData.authorities)) {
+                realRole = meData.authorities[0]?.authority || meData.authorities[0];
+              }
+              if (!realRole && Array.isArray(meData.roles)) {
+                realRole = meData.roles[0];
+              }
+              console.log(`🔍 [Login /user/me] 최종 추출 role="${realRole}"`);
+
               realLan = meData.lan || meData.language || null;
             }
           } catch { /* /user/me 실패 시 login 응답 데이터 사용 */ }
@@ -454,8 +469,16 @@ export const authOptions: NextAuthOptions = {
             realUserId = userData.user_id || userData.userId || userData.id;
             realNickname = userData.nickname || userData.name;
             realProfileImage = userData.profile_image || userData.profile_img || userData.profileImage;
-            realRole = userData.role;
             realLan = userData.lan || userData.language || null;
+          }
+          if (!realRole) {
+            realRole = userData.role || userData.userRole || userData.authority || userData.user_role || userData.type;
+            if (!realRole && Array.isArray(userData.authorities)) {
+              realRole = userData.authorities[0]?.authority || userData.authorities[0];
+            }
+            if (!realRole && Array.isArray(userData.roles)) {
+              realRole = userData.roles[0];
+            }
           }
 
           const returnUser = {
@@ -465,11 +488,12 @@ export const authOptions: NextAuthOptions = {
             nickname: realNickname,
             image: realProfileImage || null,
             accessToken,
-            refreshToken, // ✅ 리프레시 토큰
-            expiresIn,    // ✅ 만료 시간(초)
+            refreshToken,
+            expiresIn,
             role: realRole || "User",
             lan: realLan,
           };
+          console.log(`🔍 [Login] 최종 반환 user: role="${returnUser.role}", id="${returnUser.id}"`);
           return returnUser;
         } catch (error) {
           console.error("[Login] Exception:", error instanceof Error ? error.message : String(error));
@@ -477,6 +501,13 @@ export const authOptions: NextAuthOptions = {
         }
       },
     }),
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ❌ admin-credentials provider 제거됨
+    // 관리자 로그인은 일반 "credentials" provider로 인증 후
+    // 클라이언트(/admin/login)에서 role을 검증하는 방식으로 변경
+    // → NextAuth authorize에서 throw 사용 시 무한 새로고침 발생하므로
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ],
   cookies: {
     sessionToken: {
@@ -601,9 +632,13 @@ export const authOptions: NextAuthOptions = {
         session.user.name = token.name || session.user.name || "";
         session.user.nickname = (token.nickname as string) || (token.name as string) || null;
         session.user.image = (token.image as string) || (token.picture as string) || session.user.image || null;
-        session.user.role = token.role as string || "User";
+
+        // ✅ role: JWT 토큰에서 세션으로 확실히 전달
+        session.user.role = (token.role as string) || "User";
+
         session.user.profileComplete = token.profileComplete as boolean || false;
         session.user.lan = (token.lan as string) || null;
+
         // ✅ 세션에 accessToken 전달 (항상 "Bearer xxx" 형태)
         (session as any).accessToken = token.accessToken || null;
 
@@ -611,6 +646,8 @@ export const authOptions: NextAuthOptions = {
         if (token.error) {
           (session as any).error = token.error;
         }
+
+        console.log(`[SESSION] 📋 role="${session.user.role}", email="${session.user.email}", id="${session.user.id}"`);
       }
       return session;
     },
@@ -645,7 +682,17 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name || undefined;
         token.nickname = (user as any).nickname || user.name || null;
         token.image = user.image || (user as any).profileImage || (user as any).profile_image || null;
-        token.role = (user as any).role || "User";
+
+        // ✅ role 광범위 탐색: authorize가 넣어준 role 우선, 없으면 다양한 필드명 시도
+        const userRole = (user as any).role
+          || (user as any).userRole
+          || (user as any).authority
+          || (user as any).user_role
+          || "User";
+        token.role = userRole;
+
+        console.log(`[JWT] ✅ 최초 로그인 — role="${token.role}", userId="${realUserId}", email="${token.email}"`);
+
         token.lan = (user as any).lan || null;
 
         // ✅ accessToken → 항상 "Bearer xxx" 형태로 저장 (통일)

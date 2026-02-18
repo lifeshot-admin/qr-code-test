@@ -9,6 +9,7 @@ import { Check } from "lucide-react";
 import { useReservationStore, type Tour, type Spot } from "@/lib/reservation-store";
 import { useHasMounted } from "@/lib/use-has-mounted";
 import PoseLightbox from "@/app/cheiz/components/PoseLightbox";
+import { useModal } from "@/components/GlobalModal";
 
 type SpotPose = {
   _id: string;
@@ -33,6 +34,7 @@ function PosesContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showAlert } = useModal();
   
   const tourIdParam = searchParams.get("tour_id");
   const spotIdParam = searchParams.get("spot_id");
@@ -220,7 +222,7 @@ function PosesContent() {
     } else {
       const success = addPose(spotId, poseId);
       if (!success) {
-        alert(`최대 ${tour.max_total}개까지만 선택 가능합니다.`);
+        showAlert(`최대 ${tour.max_total}개까지만 선택 가능합니다.`);
       }
     }
   };

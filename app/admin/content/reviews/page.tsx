@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, Eye, EyeOff, Star, ArrowLeft, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { useModal } from "@/components/GlobalModal";
 
 type Review = {
   _id: string;
@@ -14,6 +15,7 @@ type Review = {
   title?: string;
   is_hidden?: boolean;
   user?: string;
+  recommend?: number;
   "Created Date"?: string;
   "Modified Date"?: string;
   _user_nickname?: string;
@@ -21,7 +23,19 @@ type Review = {
   [key: string]: any;
 };
 
+function extractReviewText(review: Review): string {
+  const skip = new Set(["_id", "image", "image-2", "image-3", "score", "title", "is_hidden", "user", "recommend", "Created Date", "Modified Date", "_user_nickname", "_user_image", "대댓글", "Created By", "_type"]);
+  for (const [key, val] of Object.entries(review)) {
+    if (skip.has(key)) continue;
+    if (typeof val === "string" && val.length > 5 && !key.startsWith("_")) {
+      return val;
+    }
+  }
+  return "";
+}
+
 export default function ReviewsAdminPage() {
+  const { showConfirm } = useModal();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -62,7 +76,8 @@ export default function ReviewsAdminPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("이 리뷰를 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
+    const confirmed = await showConfirm("이 리뷰를 영구 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.", { title: "리뷰 삭제", confirmText: "삭제하기", cancelText: "취소" });
+    if (!confirmed) return;
     setActionLoading(id);
     try {
       await fetch(`/api/admin/reviews?id=${id}`, { method: "DELETE" });
@@ -143,9 +158,9 @@ export default function ReviewsAdminPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm font-medium text-gray-900">
-                        {review._user_nickname || "익명"}
+                        {review._user_nickname || review.user || "익명"}
                       </span>
-                      {renderStars(review.score)}
+                      {renderStars(review.score ?? review.recommend)}
                       {review.is_hidden && (
                         <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">비노출</span>
                       )}
@@ -153,7 +168,9 @@ export default function ReviewsAdminPage() {
                     {review.title && (
                       <p className="text-sm font-medium text-gray-800 mb-0.5">{review.title}</p>
                     )}
-                    <p className="text-sm text-gray-600 line-clamp-2">{review.review || "내용 없음"}</p>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {review.review || extractReviewText(review) || "내용 없음"}
+                    </p>
                     <p className="text-xs text-gray-400 mt-1">
                       {review["Created Date"] ? new Date(review["Created Date"]).toLocaleDateString("ko-KR") : "—"}
                     </p>

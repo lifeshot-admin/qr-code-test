@@ -8,6 +8,7 @@ import Image from "next/image";
 import { Camera, Loader2 } from "lucide-react";
 import { useReservationStore, validateReservation, type Tour, type Spot } from "@/lib/reservation-store";
 import { useHasMounted } from "@/lib/use-has-mounted";
+import { useModal } from "@/components/GlobalModal";
 
 /**
  * 이미지 URL 정규화
@@ -24,6 +25,7 @@ function SpotsContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showAlert, showError, showSuccess } = useModal();
   
   const tourIdParam = searchParams.get("tour_id");
   const folderIdParam = searchParams.get("folder_id"); // ✅ 출입증 확보
@@ -240,13 +242,13 @@ function SpotsContent() {
   // ✅ URL 파라미터 우선: Zustand store 대신 URL에서 가져온 값을 강제 사용
   const handleProceedToReview = () => {
     if (!validation?.canProceedToReview) {
-      alert(validation?.globalMessage || "선택 조건을 확인해주세요.");
+      showAlert(validation?.globalMessage || "선택 조건을 확인해주세요.");
       return;
     }
 
     const safeTourId = tourIdParam ? parseInt(tourIdParam, 10) : tourId;
     if (!safeTourId) {
-      alert("투어 정보를 확인할 수 없습니다.");
+      showError("투어 정보를 확인할 수 없습니다.");
       return;
     }
 
@@ -279,7 +281,7 @@ function SpotsContent() {
       console.log(`  🎫 tourId: ${safeTourId}`);
 
       if (!existingReservationId) {
-        alert("수정할 예약 정보를 찾을 수 없습니다.");
+        showError("수정할 예약 정보를 찾을 수 없습니다.");
         setUpdatingPoses(false);
         return;
       }
@@ -354,11 +356,11 @@ function SpotsContent() {
       // 수정 모드 해제
       setEditMode(false, null, []);
 
-      alert("포즈가 성공적으로 수정되었습니다!");
+      await showSuccess("포즈가 성공적으로 수정되었습니다!", { title: "수정 완료" });
       router.push("/cheiz/my-tours");
     } catch (error: any) {
       console.error("[EDIT_MODE] ❌ 포즈 수정 실패:", error);
-      alert(`수정 실패: ${error.message}`);
+      await showError(`수정에 실패했습니다.\n${error.message}`);
     } finally {
       setUpdatingPoses(false);
     }

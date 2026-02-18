@@ -3,12 +3,14 @@
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { getUserTours, type Tour } from "@/lib/api-client";
 import { useReservationStore, type GuestCount } from "@/lib/reservation-store";
 import GuestSheet from "@/app/cheiz/components/GuestSheet";
 import QRCode from "qrcode";
 import { formatKSTTime, formatKSTDate, toKST } from "@/lib/utils";
+import toast from "react-hot-toast";
+import { useModal } from "@/components/GlobalModal";
 
 // ==================== LOGGING HELPER ====================
 
@@ -22,6 +24,7 @@ function MyToursContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showAlert, showConfirm, showError, showSuccess } = useModal();
   
   const [tours, setTours] = useState<Tour[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +71,96 @@ function MyToursContent() {
     tourName: string;
   }>({ visible: false, qrCodeUrl: "", reservationId: "", tourName: "" });
 
+  // ━━━ AI 보정 진행률 상태 ━━━
+  type AiProgressInfo = {
+    totalCount: number;
+    completedCount: number;
+    processingCount: number;
+    pendingCount: number;
+    isComplete: boolean;
+    percentage: number;
+  };
+  const [aiProgress, setAiProgress] = useState<Record<number, AiProgressInfo>>({});
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ━━━ AI 폴더 여부 판별 (이름이 [AI]로 시작하는 폴더) ━━━
+  const isAiFolder = useCallback((tour: Tour): boolean => {
+    return tour.name?.startsWith("[AI]") ?? false;
+  }, []);
+
+  // ━━━ AI 폴더의 보정 진행률 조회 ━━━
+  const fetchAiProgress = useCallback(async (folderId: number) => {
+    try {
+      const res = await fetch(`/api/backend/ai-status?folderId=${folderId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setAiProgress(prev => ({
+            ...prev,
+            [folderId]: {
+              totalCount: data.totalCount,
+              completedCount: data.completedCount,
+              processingCount: data.processingCount,
+              pendingCount: data.pendingCount,
+              isComplete: data.isComplete,
+              percentage: data.percentage,
+            },
+          }));
+          return data.isComplete;
+        }
+      }
+    } catch (e) {
+      console.error(`[AI_POLL] folderId=${folderId} 상태 조회 실패:`, e);
+    }
+    return false;
+  }, []);
+
+  // ━━━ AI 폴더 폴링 (진행 중인 AI 폴더가 있으면 10초마다 상태 갱신) ━━━
+  useEffect(() => {
+    const aiTours = tours.filter(t => isAiFolder(t) && (t.status === "COMPLETED" || t.status === "UPLOAD_COMPLETED"));
+
+    if (aiTours.length === 0) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+
+    // 초기 1회 조회
+    aiTours.forEach(t => fetchAiProgress(t.id));
+
+    // 폴링 시작: 10초 간격
+    pollingRef.current = setInterval(async () => {
+      const incompleteAiTours = aiTours.filter(t => {
+        const p = aiProgress[t.id];
+        return !p || !p.isComplete;
+      });
+
+      if (incompleteAiTours.length === 0) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        return;
+      }
+
+      for (const t of incompleteAiTours) {
+        const complete = await fetchAiProgress(t.id);
+        if (complete) {
+          toast.success(`"${t.name}" AI 보정이 완료되었습니다!`);
+        }
+      }
+    }, 10000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [tours, isAiFolder, fetchAiProgress]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Check for access denied error
   useEffect(() => {
     const errorType = searchParams.get("error");
@@ -75,7 +168,7 @@ function MyToursContent() {
     
     if (errorType === "access_denied" && message) {
       // Show toast notification
-      alert(`⛔ ${message}`);
+      showError(message || "접근이 거부되었습니다.");
       
       // Clean URL
       router.replace("/cheiz/my-tours");
@@ -234,7 +327,8 @@ function MyToursContent() {
 
   // ✅ [마이페이지 통합] 포즈 예약 취소 + Java 백엔드 폴더 CANCELED
   const handleCancelReservation = async (reservationId: string, folderId: number) => {
-    if (!confirm("정말로 예약을 취소하시겠습니까?\n선택한 포즈가 모두 삭제되며, 예약 취소 후 새 예약을 해야 합니다.")) return;
+    const confirmed = await showConfirm("정말로 예약을 취소하시겠습니까?\n선택한 포즈가 모두 삭제되며, 예약 취소 후 새 예약을 해야 합니다.", { title: "예약 취소", confirmText: "취소하기", cancelText: "돌아가기" });
+    if (!confirmed) return;
 
     setCancellingId(reservationId);
     try {
@@ -273,7 +367,7 @@ function MyToursContent() {
         const data = await res.json();
         if (data.success) {
           console.log("[CANCEL] ✅ Bubble 예약 삭제 완료");
-          alert("예약이 취소되었습니다.\n새 예약을 하려면 투어 상세에서 다시 예약해주세요.");
+          await showSuccess("예약이 취소되었습니다.\n새 예약을 하려면 투어 상세에서 다시 예약해주세요.", { title: "취소 완료" });
           // 상태 갱신
           setPoseReservations((prev) => ({
             ...prev,
@@ -282,15 +376,15 @@ function MyToursContent() {
           // 투어 목록 새로고침
           fetchTours();
         } else {
-          alert("취소에 실패했습니다. 다시 시도해주세요.");
+          await showError("취소에 실패했습니다. 다시 시도해주세요.");
         }
       } else {
-        alert("취소에 실패했습니다. 다시 시도해주세요.");
+        await showError("취소에 실패했습니다. 다시 시도해주세요.");
       }
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     } catch (e) {
       console.error("❌ [Cancel] 취소 실패:", e);
-      alert("취소 중 오류가 발생했습니다.");
+      await showError("취소 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setCancellingId(null);
     }
@@ -317,7 +411,7 @@ function MyToursContent() {
       });
     } catch (err) {
       console.error("QR 코드 생성 실패:", err);
-      alert("QR 코드 생성에 실패했습니다.");
+      showError("QR 코드 생성에 실패했습니다.");
     }
   };
 
@@ -559,7 +653,7 @@ function MyToursContent() {
                 : "bg-gray-100 text-gray-500 hover:bg-gray-200"
             }`}
           >
-            예약 / 업로드 완료 ({tours.filter(t => t.status !== "CANCELED" && t.status !== "NOSHOW").length})
+            예약 / 업로드 완료 ({tours.filter(t => t.status !== "CANCELED" && t.status !== "NOSHOW" && t.status !== "PAYMENT_IN_PROGRESS").length})
           </button>
           <button
             onClick={() => setActiveTab("canceled")}
@@ -577,7 +671,7 @@ function MyToursContent() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {tours
             .filter(t => activeTab === "active"
-              ? t.status !== "CANCELED" && t.status !== "NOSHOW"
+              ? t.status !== "CANCELED" && t.status !== "NOSHOW" && t.status !== "PAYMENT_IN_PROGRESS"
               : t.status === "CANCELED" || t.status === "NOSHOW")
             .sort((a, b) => {
               // 2순위: 상태 우선 (진행 중 > 완료 > 기타)
@@ -645,7 +739,9 @@ function MyToursContent() {
                   }}
                   className={`bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100 ${
                     tour.status === "CANCELED" || tour.status === "NOSHOW"
-                      ? "opacity-40 grayscale border-gray-200 pointer-events-none" 
+                      ? "opacity-40 grayscale border-gray-200 pointer-events-none"
+                      : isAiFolder(tour) && aiProgress[folderId] && !aiProgress[folderId].isComplete
+                      ? "opacity-80 border-purple-200"
                       : !isPast 
                       ? "cursor-pointer hover:shadow-sm transition-shadow" 
                       : "opacity-60"
@@ -750,23 +846,76 @@ function MyToursContent() {
 
                     {/* ✅ [마이페이지 통합] 포즈 예약 상태 & CTA */}
                     {/* ✅ COMPLETED / UPLOAD_COMPLETED 상태: 앨범 보기 버튼 */}
-                    {(tour.status === "COMPLETED" || tour.status === "UPLOAD_COMPLETED") && (
-                      <div className="space-y-2">
-                        <div className="bg-green-50 rounded-2xl p-3 text-center">
-                          <p className="text-sm text-green-600 font-medium">✅ 촬영이 완료되었습니다</p>
+                    {(tour.status === "COMPLETED" || tour.status === "UPLOAD_COMPLETED") && (() => {
+                      const isAi = isAiFolder(tour);
+                      const progress = aiProgress[folderId];
+                      const aiProcessing = isAi && progress && !progress.isComplete;
+
+                      return (
+                        <div className="space-y-2 relative">
+                          {/* AI 보정 진행 중 오버레이 */}
+                          {aiProcessing && progress && (
+                            <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-bold text-purple-700 flex items-center gap-1.5">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                                  AI 보정 중
+                                </span>
+                                <span className="text-sm font-extrabold text-purple-600">
+                                  {progress.completedCount}/{progress.totalCount}장 ({progress.percentage}%)
+                                </span>
+                              </div>
+                              <div className="h-2.5 bg-purple-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-700 ease-out"
+                                  style={{
+                                    width: `${progress.percentage}%`,
+                                    background: "linear-gradient(90deg, #9333ea, #ec4899)",
+                                  }}
+                                />
+                              </div>
+                              <p className="text-[11px] text-purple-400 mt-2 text-center">
+                                보정이 완료되면 자동으로 갱신됩니다
+                              </p>
+                            </div>
+                          )}
+
+                          {/* 완료 안내 (AI 보정이 아니거나 AI 보정 완료) */}
+                          {(!isAi || (progress && progress.isComplete)) && (
+                            <div className="bg-green-50 rounded-2xl p-3 text-center">
+                              <p className="text-sm text-green-600 font-medium">
+                                {isAi && progress?.isComplete ? "✨ AI 보정이 완료되었습니다" : "✅ 촬영이 완료되었습니다"}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* 버튼: AI 보정 중이면 비활성화 */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (aiProcessing) {
+                                toast("아직 AI 보정이 진행 중입니다.\n완료 후 확인하실 수 있습니다.", { icon: "⏳" });
+                                return;
+                              }
+                              logUserAction("폴더 보기", { folderId });
+                              router.push(`/cheiz/folder/${folderId}`);
+                            }}
+                            disabled={!!aiProcessing}
+                            className={`w-full py-3 px-4 font-bold rounded-xl transition-all text-base shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 ${
+                              aiProcessing
+                                ? "bg-gray-300 text-gray-500 cursor-not-allowed shadow-none"
+                                : "bg-[#0055FF] text-white hover:bg-opacity-90"
+                            }`}
+                          >
+                            {aiProcessing ? (
+                              <>⏳ AI 보정 진행 중...</>
+                            ) : (
+                              <>📷 사진 확인 & 리터칭</>
+                            )}
+                          </button>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            logUserAction("폴더 보기", { folderId });
-                            router.push(`/cheiz/folder/${folderId}`);
-                          }}
-                          className="w-full py-3 px-4 bg-[#0055FF] text-white font-bold rounded-xl hover:bg-opacity-90 transition-all text-base shadow-sm active:scale-[0.98] flex items-center justify-center gap-2"
-                        >
-                          📷 사진 확인 & 리터칭
-                        </button>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {(tour.status === "CANCELED" || tour.status === "NOSHOW") && (
                       <div className="bg-red-50 rounded-2xl p-4 text-center">
                         <p className="text-sm text-red-500 font-medium">
@@ -873,7 +1022,7 @@ function MyToursContent() {
 
         {/* 현재 탭에 데이터가 없을 때 */}
         {tours.filter(t => activeTab === "active"
-          ? t.status !== "CANCELED" && t.status !== "NOSHOW"
+          ? t.status !== "CANCELED" && t.status !== "NOSHOW" && t.status !== "PAYMENT_IN_PROGRESS"
           : t.status === "CANCELED" || t.status === "NOSHOW").length === 0 && (
           <div className="bg-gray-50 rounded-2xl p-10 text-center">
             <p className="text-4xl mb-3">{activeTab === "active" ? "📭" : "🗑️"}</p>

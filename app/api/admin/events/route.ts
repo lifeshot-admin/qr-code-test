@@ -17,9 +17,27 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const result = await createEvent(body);
+    const payload = {
+      title: body.title || "",
+      subtitle: body.subtitle || "",
+      badge_text: body.badge_text || "",
+      benefit_desc: body.benefit_desc || "",
+      conditions: body.conditions || "",
+      cta_text: body.cta_text || "",
+      description: body.description || "",
+      image_url: body.image_url || "",
+      reward_amount: Number(body.reward_amount) || 0,
+      reward_type: body.reward_type || "PHOTO",
+      sort_order: Number(body.sort_order) || 0,
+      target_url: body.target_url || "",
+      thumbnail_url: body.thumbnail_url || "",
+    };
+
+    console.log("[API /admin/events POST] Bubble payload:", JSON.stringify(payload));
+
+    const result = await createEvent(payload);
     if (!result) {
-      return NextResponse.json({ error: "이벤트 생성 실패" }, { status: 500 });
+      return NextResponse.json({ error: "이벤트 생성 실패 — Bubble API 응답 없음" }, { status: 500 });
     }
     return NextResponse.json({ data: result }, { status: 201 });
   } catch (error) {
@@ -31,11 +49,19 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, ...data } = body;
+    const { id, ...rawData } = body;
     if (!id) {
       return NextResponse.json({ error: "id 필수" }, { status: 400 });
     }
-    const ok = await updateEvent(id, data);
+
+    if (rawData.sort_order !== undefined) {
+      rawData.sort_order = Number(rawData.sort_order) || 0;
+    }
+    if (rawData.reward_amount !== undefined) {
+      rawData.reward_amount = Number(rawData.reward_amount) || 0;
+    }
+
+    const ok = await updateEvent(id, rawData);
     if (!ok) {
       return NextResponse.json({ error: "이벤트 수정 실패" }, { status: 500 });
     }

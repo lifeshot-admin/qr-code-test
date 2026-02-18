@@ -23,12 +23,20 @@ export default function Error({
         {error.digest && (
           <p className="text-xs text-gray-400 mb-6">Error ID: {error.digest}</p>
         )}
-        <button
-          onClick={reset}
-          className="bg-[#0055FF] text-white font-bold py-3 px-8 rounded-2xl hover:bg-opacity-90 transition-all"
-        >
-          다시 시도
-        </button>
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={reset}
+            className="bg-[#0055FF] text-white font-bold py-3 px-8 rounded-2xl hover:bg-opacity-90 transition-all"
+          >
+            다시 시도
+          </button>
+          <button
+            onClick={() => { window.location.href = "/"; }}
+            className="bg-gray-200 text-gray-700 font-bold py-3 px-8 rounded-2xl hover:bg-gray-300 transition-all"
+          >
+            홈으로
+          </button>
+        </div>
       </div>
     </div>
   );

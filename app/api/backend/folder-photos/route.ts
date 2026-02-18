@@ -126,6 +126,86 @@ export async function GET(request: NextRequest) {
       type: p.type === "SNAP" ? "PHOTO" : p.type,
     }));
 
+    // ━━━ AI 보정 사진 병합: /api/v1/ai/photos 에서 aiPhotoUrl 가져오기 ━━━
+    try {
+      const aiPhotosUrl = `${API_BASE_URL}/api/v1/ai/photos?folderId=${folderId}`;
+      console.log(`[PHOTOS_API]   🤖 AI photos URL: ${aiPhotosUrl}`);
+
+      const aiRes = await fetch(aiPhotosUrl, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          "Accept-Language": userLan,
+        },
+      });
+
+      if (aiRes.ok) {
+        const aiText = await aiRes.text();
+        let aiParsed: any;
+        try { aiParsed = JSON.parse(aiText); } catch { aiParsed = {}; }
+
+        let aiPhotos: any[] = [];
+        if (aiParsed.content && Array.isArray(aiParsed.content)) {
+          aiPhotos = aiParsed.content;
+        } else if (aiParsed.data?.content && Array.isArray(aiParsed.data.content)) {
+          aiPhotos = aiParsed.data.content;
+        } else if (aiParsed.data && Array.isArray(aiParsed.data)) {
+          aiPhotos = aiParsed.data;
+        } else if (Array.isArray(aiParsed)) {
+          aiPhotos = aiParsed;
+        }
+
+        if (aiPhotos.length > 0) {
+          console.log(`[PHOTOS_API]   🤖 AI 사진 ${aiPhotos.length}장 병합 시작`);
+
+          // aiPhotoUrl 매핑: folderPhotoUrl 또는 id로 원본 사진과 매칭
+          const aiMap = new Map<string, string>();
+          for (const ai of aiPhotos) {
+            // folderPhotoUrl → aiPhotoUrl 매핑
+            if (ai.folderPhotoUrl && ai.aiPhotoUrl) {
+              aiMap.set(ai.folderPhotoUrl, ai.aiPhotoUrl);
+            }
+            // id 기반 매핑도 시도
+            if (ai.folderPhotoId && ai.aiPhotoUrl) {
+              aiMap.set(String(ai.folderPhotoId), ai.aiPhotoUrl);
+            }
+          }
+
+          // 원본 사진에 aiUrl 병합
+          for (const photo of photos) {
+            const matchByUrl = aiMap.get(photo.url) || aiMap.get(photo.imageUrl) || aiMap.get(photo.originalUrl) || aiMap.get(photo.photoUrl);
+            const matchById = aiMap.get(String(photo.id)) || aiMap.get(String(photo.photoId));
+
+            if (matchByUrl) {
+              photo.aiUrl = matchByUrl;
+            } else if (matchById) {
+              photo.aiUrl = matchById;
+            }
+          }
+
+          // URL 매칭이 안 된 경우: 순서 기반 매핑 (동일 인덱스)
+          const unmatchedPhotos = photos.filter((p: any) => !p.aiUrl);
+          if (unmatchedPhotos.length > 0 && aiPhotos.length > 0) {
+            console.log(`[PHOTOS_API]   🤖 URL 미매칭 ${unmatchedPhotos.length}장 → 순서 기반 매핑 시도`);
+            for (let i = 0; i < Math.min(photos.length, aiPhotos.length); i++) {
+              if (!photos[i].aiUrl && aiPhotos[i].aiPhotoUrl) {
+                photos[i].aiUrl = aiPhotos[i].aiPhotoUrl;
+              }
+            }
+          }
+
+          const aiUrlCount = photos.filter((p: any) => p.aiUrl).length;
+          console.log(`[PHOTOS_API]   🤖 AI URL 병합 완료: ${aiUrlCount}/${photos.length}장에 aiUrl 설정됨`);
+        } else {
+          console.log(`[PHOTOS_API]   🤖 AI 사진 없음 (일반 폴더)`);
+        }
+      } else {
+        console.log(`[PHOTOS_API]   🤖 AI photos API ${aiRes.status} — 건너뜀 (일반 폴더일 수 있음)`);
+      }
+    } catch (aiErr: any) {
+      console.warn(`[PHOTOS_API]   🤖 AI photos 병합 실패 (무시): ${aiErr.message}`);
+    }
+
     console.log(`[PHOTOS_API] ✅ Success, photos count: ${photos.length}`);
 
     return NextResponse.json({

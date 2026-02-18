@@ -7,6 +7,7 @@ import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { useReservationStore, validateReservation } from "@/lib/reservation-store";
+import { useModal } from "@/components/GlobalModal";
 
 // ==================== LOGGING HELPER ====================
 
@@ -38,6 +39,7 @@ function ReviewContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showAlert, showError } = useModal();
   
   const tourIdParam = searchParams.get("tour_id");
   
@@ -137,7 +139,7 @@ function ReviewContent() {
 
     const totalCount = getTotalSelectedCount();
     if (totalCount === 0) {
-      alert("선택한 포즈가 없습니다. 스팟 선택 페이지로 이동합니다.");
+      await showAlert("선택한 포즈가 없습니다. 스팟 선택 페이지로 이동합니다.");
       router.push(`/cheiz/reserve/spots?tour_id=${parsedTourId}`);
       return;
     }
@@ -282,20 +284,20 @@ function ReviewContent() {
     logUserAction("포즈 예약하기", { tourId, folderId, poseCount: getTotalSelectedCount() });
     // ✅ [검증 1] 선택 조건 확인
     if (!validation?.canProceedToReview) {
-      alert(validation?.globalMessage || "선택 조건을 확인해주세요.");
+      await showAlert(validation?.globalMessage || "선택 조건을 확인해주세요.");
       return;
     }
 
     // ✅ [검증 2] 세션 확인
     if (!session?.user?.id) {
-      alert("세션 정보를 확인할 수 없습니다. 다시 로그인해주세요.");
+      await showError("세션 정보를 확인할 수 없습니다. 다시 로그인해주세요.");
       console.error(`${getTimestamp()} ❌ [SESSION] Missing session or user ID`);
       return;
     }
 
     // ✅ [검증 3] tourId 확인
     if (!tourId) {
-      alert("투어 정보를 확인할 수 없습니다. 처음부터 다시 시작해주세요.");
+      await showError("투어 정보를 확인할 수 없습니다. 처음부터 다시 시작해주세요.");
       console.error(`${getTimestamp()} ❌ [TOUR ID] Missing tourId`);
       return;
     }
@@ -603,7 +605,7 @@ function ReviewContent() {
       console.error(`${getTimestamp()} Error:`, error);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
-      alert(`포즈 예약에 실패했습니다.\n${error instanceof Error ? error.message : "다시 시도해주세요."}`);
+      await showError(`포즈 예약에 실패했습니다.\n${error instanceof Error ? error.message : "다시 시도해주세요."}`);
     } finally {
       setSubmitting(false);
     }

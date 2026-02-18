@@ -22,10 +22,12 @@ import {
   Loader2,
   FolderOpen,
 } from "lucide-react";
+import { useModal } from "@/components/GlobalModal";
 
 export default function MyPage() {
   const { data: session, status, update: updateSession } = useSession();
   const router = useRouter();
+  const { showConfirm } = useModal();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -296,7 +298,8 @@ export default function MyPage() {
       }
       return;
     }
-    if (!confirm("정말 회원을 탈퇴하시겠습니까?\n탈퇴 시 모든 데이터가 삭제되며 복구할 수 없습니다.")) return;
+    const confirmed = await showConfirm("정말 회원을 탈퇴하시겠습니까?\n탈퇴 시 모든 데이터가 삭제되며 복구할 수 없습니다.", { title: "회원 탈퇴", confirmText: "탈퇴하기", cancelText: "돌아가기" });
+    if (!confirmed) return;
     setWithdrawing(true);
     try {
       // customReason을 reasons 쿼리에 함께 전달
@@ -314,9 +317,10 @@ export default function MyPage() {
     finally { setWithdrawing(false); }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setMenuOpen(false);
-    if (confirm("로그아웃 하시겠습니까?")) signOut({ callbackUrl: "/cheiz" });
+    const confirmed = await showConfirm("로그아웃 하시겠습니까?", { title: "로그아웃" });
+    if (confirmed) signOut({ callbackUrl: "/cheiz" });
   };
 
   // ━━━ 로딩 — 스켈레톤 UI ━━━

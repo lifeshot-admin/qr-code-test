@@ -5,10 +5,12 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import type { SpotPose } from "@/lib/bubble-api";
+import { useModal } from "@/components/GlobalModal";
 
 export default function PoseSelectorPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showAlert, showSuccess } = useModal();
   const [poses, setPoses] = useState<SpotPose[]>([]);
   const [selectedPoses, setSelectedPoses] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -60,11 +62,10 @@ export default function PoseSelectorPage() {
 
   const handleConfirm = () => {
     if (selectedPoses.size === 0) {
-      alert("최소 1개 이상의 포즈를 선택해주세요.");
+      showAlert("최소 1개 이상의 포즈를 선택해주세요.");
       return;
     }
-    // TODO: 선택한 포즈들을 예약에 연결
-    alert(`${selectedPoses.size}개의 포즈가 선택되었습니다!`);
+    showSuccess(`${selectedPoses.size}개의 포즈가 선택되었습니다!`, { title: "선택 완료" });
     // router.push("/cheiz/booking-confirm");
   };
 

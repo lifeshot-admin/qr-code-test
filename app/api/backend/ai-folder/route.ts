@@ -56,9 +56,10 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const scheduleId = Number(body.scheduleId);
-    const hostUserId = Number(userId) || Number(body.hostUserId) || 0;
+    const hostUserId = Number(body.hostUserId) || Number(userId) || 0;
     const name = body.name || `AI_RETOUCH_${scheduleId}`;
     const personCount = Number(body.personCount) || 1;
+    const sourceFolderId = body.sourceFolderId || null;
 
     if (!scheduleId) {
       return NextResponse.json(
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(
-      `[AI_FOLDER] Step 1 — scheduleId: ${scheduleId}, user: ${hostUserId}, name: ${name}`,
+      `[AI_FOLDER] Step 1 — scheduleId: ${scheduleId}, hostUserId: ${hostUserId}, name: ${name}, personCount: ${personCount}, source: ${sourceFolderId}`,
     );
 
     // credit: "false" → 결제대기(PAYMENT_PENDING) 잠금 없이 즉시 RESERVED 상태로 생성

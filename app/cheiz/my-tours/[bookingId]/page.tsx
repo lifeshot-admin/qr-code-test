@@ -11,6 +11,7 @@ import {
   ChevronLeft, Calendar, MapPin, User, Clock,
   CreditCard, QrCode, AlertTriangle, X,
 } from "lucide-react";
+import { useModal } from "@/components/GlobalModal";
 
 // ==================== Types ====================
 
@@ -36,6 +37,7 @@ export default function BookingDetailPage() {
   const router = useRouter();
   const params = useParams();
   const bookingId = params.bookingId as string;
+  const { showSuccess, showError } = useModal();
 
   const [tour, setTour] = useState<Tour | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,15 +138,15 @@ export default function BookingDetailPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          alert("예약이 취소되었습니다.");
+          await showSuccess("예약이 취소되었습니다.", { title: "취소 완료" });
           router.push("/cheiz/my-tours");
           return;
         }
       }
-      alert("취소에 실패했습니다. 다시 시도해주세요.");
+      await showError("취소에 실패했습니다. 다시 시도해주세요.");
     } catch (e) {
       console.error("[BookingDetail] 취소 실패:", e);
-      alert("취소 중 오류가 발생했습니다.");
+      await showError("취소 중 오류가 발생했습니다.");
     } finally {
       setCancelling(false);
       setShowCancelModal(false);

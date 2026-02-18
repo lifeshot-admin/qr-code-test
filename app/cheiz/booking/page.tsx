@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { useModal } from "@/components/GlobalModal";
 
 export default function BookingPage() {
   const router = useRouter();
+  const { showSuccess, showError } = useModal();
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
@@ -29,13 +31,13 @@ export default function BookingPage() {
       });
 
       if (response.ok) {
-        alert("예약이 완료되었습니다!");
+        await showSuccess("예약이 완료되었습니다!", { title: "예약 완료" });
         router.push("/cheiz/mypage");
       } else {
         throw new Error("예약 실패");
       }
     } catch (error) {
-      alert("예약에 실패했습니다. 다시 시도해주세요.");
+      await showError("예약에 실패했습니다. 다시 시도해주세요.");
     } finally {
       setIsSubmitting(false);
     }

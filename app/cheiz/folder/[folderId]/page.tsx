@@ -8,6 +8,7 @@ import {
   ArrowLeft, Download, Sparkles, X, CheckCheck,
   ChevronRight, Eye, Loader2, Wand2, AlertCircle, Info,
 } from "lucide-react";
+import { useModal } from "@/components/GlobalModal";
 
 // ━━━ 타입 ━━━
 type Photo = {
@@ -32,6 +33,7 @@ export default function FolderPage() {
   const router = useRouter();
   const params = useParams();
   const folderId = params?.folderId as string;
+  const { showAlert, showError } = useModal();
 
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,7 @@ export default function FolderPage() {
   // ━━━ 상세 뷰어 ━━━
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<"original" | "ai">("original");
+  const [viewMode, setViewMode] = useState<"original" | "ai">("ai");
 
   // ━━━ 순서 기반 선택 ━━━
   const [selectedOrder, setSelectedOrder] = useState<(string | number)[]>([]);
@@ -96,7 +98,7 @@ export default function FolderPage() {
               console.log(`[FOLDER] scheduleId 폴백 성공: ${fallback}`);
             } else {
               console.error("[FOLDER] scheduleId 확보 실패 — 1차(folder-detail)도 2차(schedules 폴백)도 실패");
-              alert("[디버그] scheduleId를 확보할 수 없습니다.\n\n1차: folder-detail API에 scheduleId 없음\n2차: schedules 폴백도 실패\n\n개발자 도구 콘솔을 확인해주세요.");
+              showError("일정 정보를 불러올 수 없습니다.\n잠시 후 다시 시도해주세요.", { showKakaoLink: true });
             }
           }
         } else {
@@ -125,7 +127,7 @@ export default function FolderPage() {
             id: p.id ?? p.photoId ?? p._id ?? `photo-${Math.random()}`,
             url: p.url || p.imageUrl || p.originalUrl || p.photoUrl || "",
             thumbnailUrl: p.thumbnailUrl || p.thumbUrl || p.thumbnailImageUrl || p.url || p.imageUrl || "",
-            aiUrl: p.aiUrl || p.aiImageUrl || p.processedUrl || null,
+            aiUrl: p.aiUrl || p.aiPhotoUrl || p.aiImageUrl || p.processedUrl || null,
           })));
         } else setPhotos([]);
       } catch { setPhotos([]); }
@@ -177,18 +179,12 @@ export default function FolderPage() {
     });
 
     if (photos.length === 0) {
-      alert("[디버그] 사진이 없습니다. 폴더에 사진이 로드되었는지 확인해주세요.");
+      showAlert("사진이 없습니다. 폴더를 다시 확인해주세요.");
       return;
     }
 
     if (!resolvedScheduleId) {
-      alert(
-        `[디버그] scheduleId를 확보하지 못했습니다!\n\n` +
-        `folderId: ${folderId}\n` +
-        `folderDetail.scheduleId: ${folderDetail?.scheduleId ?? "null"}\n` +
-        `resolvedScheduleId: ${resolvedScheduleId}\n\n` +
-        `개발자 도구 콘솔에서 [FOLDER] 및 [SCHEDULE_FALLBACK] 로그를 확인해주세요.`
-      );
+      showError("일정 정보를 확인할 수 없습니다.\n잠시 후 다시 시도해주세요.", { showKakaoLink: true });
       return;
     }
 
@@ -214,7 +210,7 @@ export default function FolderPage() {
       const msg = `scheduleId를 확보할 수 없습니다.\nfolderId: ${folderId}\nfolderDetail: ${JSON.stringify(folderDetail)}`;
       setMigrateError(msg);
       console.error("[AI_PIPE] FATAL:", msg);
-      alert(`[AI 보정 실패] ${msg}`);
+      showError("AI 보정에 실패했습니다.\n잠시 후 다시 시도해주세요.", { showKakaoLink: true });
       return;
     }
 
@@ -238,10 +234,14 @@ export default function FolderPage() {
         ? `[AI] ${folderDetail.name}`
         : `[AI] Folder_${realScheduleId}`;
 
+      const hostUserId = folderDetail?.hostUserId || 0;
+
       console.log(`[AI_PIPE] Step 1: create-folder`);
       console.log(`[AI_PIPE]   scheduleId: ${realScheduleId}`);
       console.log(`[AI_PIPE]   name: ${folderName}`);
       console.log(`[AI_PIPE]   personCount: ${folderDetail?.personCount || 1}`);
+      console.log(`[AI_PIPE]   hostUserId: ${hostUserId}`);
+      console.log(`[AI_PIPE]   원본 folderId: ${folderId}`);
 
       const folderRes = await fetch("/api/backend/ai-folder", {
         method: "POST",
@@ -250,6 +250,8 @@ export default function FolderPage() {
           scheduleId: realScheduleId,
           name: folderName,
           personCount: folderDetail?.personCount || 1,
+          hostUserId,
+          sourceFolderId: Number(folderId),
         }),
       });
 
@@ -260,7 +262,7 @@ export default function FolderPage() {
       if (folderData.code === "AUTH_EXPIRED" || folderRes.status === 401) {
         const authMsg = "인증이 만료되었습니다. 다시 로그인해주세요.";
         console.error("[AI_PIPE] Step 1 인증 만료:", authMsg);
-        alert(`[인증 만료] ${authMsg}`);
+        showError("인증이 만료되었습니다. 다시 로그인해주세요.");
         setIsMigrating(false);
         setMigrateStep("");
         router.replace("/auth/signin");
@@ -316,19 +318,11 @@ export default function FolderPage() {
         console.error(`[AI_PIPE]   이전 상태: ${preStatus}`);
 
         const is403 = httpStatus === 403 || httpStatus === 401;
-        alert(
+        showError(
           is403
-            ? `[권한 부족] RESERVED 상태 변경이 거부되었습니다.\n\n` +
-              `현재 JWT Role: ${jwtRole}\n` +
-              `필요 권한: SUPER_ADMIN / ADMIN / MANAGER / SNAP\n` +
-              `서버 응답: ${serverMsg}\n\n` +
-              `→ 관리자 권한 토큰이 필요합니다.`
-            : `[상태 변경 실패] HTTP ${httpStatus}\n\n` +
-              `AI 폴더(${aiFolderId}) → RESERVED 변경 불가\n` +
-              `이전 상태: ${preStatus}\n` +
-              `판정: ${verdict}\n` +
-              `서버: ${serverMsg}\n\n` +
-              `콘솔 로그를 확인해주세요.`
+            ? "권한이 부족합니다.\n관리자에게 문의해주세요."
+            : "AI 보정 상태 변경에 실패했습니다.\n잠시 후 다시 시도해주세요.",
+          { showKakaoLink: true }
         );
         throw new Error(
           `Step 1.1 실패 [HTTP ${httpStatus}] ${verdict} — ${serverMsg}`
@@ -507,6 +501,11 @@ export default function FolderPage() {
       setAiJobId(jobId);
       setMigrateDone(true);
 
+      // ━━━ 파이프라인 완료 → 2초 후 my-tours로 이동 ━━━
+      setTimeout(() => {
+        router.push("/cheiz/my-tours");
+      }, 2000);
+
     } catch (e: any) {
       console.error("[AI_PIPE] 파이프라인 에러:", e.message);
       setMigrateError(e.message);
@@ -592,7 +591,7 @@ export default function FolderPage() {
               return (
                 <motion.div key={photo.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
                   className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer"
-                  onClick={() => { setViewerIndex(idx); setViewerOpen(true); setViewMode(photo.aiUrl ? "ai" : "original"); }}>
+                  onClick={() => { setViewerIndex(idx); setViewerOpen(true); }}>
                   <img src={photo.aiUrl || photo.thumbnailUrl || photo.url} alt="" className="w-full h-full object-cover" loading="lazy" />
 
                   {isSelected && <div className="absolute inset-0 bg-[#0055FF]/20 pointer-events-none" />}
@@ -624,54 +623,6 @@ export default function FolderPage() {
           <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }}
             className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)]">
             <div className="max-w-md mx-auto px-5 py-3 space-y-2">
-
-              {/* ━━━ AI 파이프라인 진행률 ━━━ */}
-              {isMigrating && (
-                <div className="mb-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-purple-700 flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      {migrateStep || "처리 중..."}
-                    </span>
-                    {migrateTotal > 0 && (
-                      <span className="text-xs font-extrabold text-purple-600">
-                        {migrateProgress} / {migrateTotal}
-                      </span>
-                    )}
-                  </div>
-                  <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${migrateTotal > 0 ? (migrateProgress / migrateTotal) * 100 : 0}%` }}
-                      transition={{ ease: "easeOut", duration: 0.3 }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {migrateDone && !isMigrating && (
-                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 mb-1">
-                  <Sparkles className="w-4 h-4 text-green-600" />
-                  <div>
-                    <span className="text-xs font-bold text-green-700">
-                      AI 보정 완료! ({migrateTotal}장 전송 → PENDING → COMPLETED)
-                    </span>
-                    {aiJobId && (
-                      <span className="text-[10px] text-green-500 ml-1.5">
-                        Job #{aiJobId}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {migrateError && !isMigrating && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-1">
-                  <AlertCircle className="w-4 h-4 text-red-500" />
-                  <span className="text-xs font-bold text-red-600">{migrateError}</span>
-                </div>
-              )}
 
               {/* 다운로드 안내 (AI 보정 사진이 있는 경우) */}
               {photos.some(p => p.aiUrl) && selectedOrder.length > 0 && (
@@ -708,6 +659,117 @@ export default function FolderPage() {
                 </button>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ━━━ 전체 화면 AI 보정 오버레이 ━━━ */}
+      <AnimatePresence>
+        {(isMigrating || migrateDone) && !migrateError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center"
+            style={{ backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)" }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="max-w-sm w-full mx-6 text-center"
+            >
+              {/* 아이콘 */}
+              <motion.div
+                animate={migrateDone ? { scale: [1, 1.2, 1] } : { rotate: 360 }}
+                transition={migrateDone ? { duration: 0.5 } : { duration: 2, repeat: Infinity, ease: "linear" }}
+                className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center"
+                style={{ background: migrateDone ? "linear-gradient(135deg, #22c55e, #16a34a)" : "linear-gradient(135deg, #9333ea, #ec4899)" }}
+              >
+                {migrateDone ? (
+                  <CheckCheck className="w-10 h-10 text-white" />
+                ) : (
+                  <Wand2 className="w-10 h-10 text-white" />
+                )}
+              </motion.div>
+
+              {/* 제목 */}
+              <h2 className="text-xl font-bold text-white mb-2">
+                {migrateDone ? "AI 보정 요청 완료!" : "AI가 사진을 분석하고 보정을 준비 중입니다..."}
+              </h2>
+
+              {/* 서브 텍스트 */}
+              <p className="text-white/60 text-sm mb-6">
+                {migrateDone
+                  ? `${migrateTotal}장이 AI 보정 대기열에 등록되었습니다. 잠시 후 이동합니다...`
+                  : migrateStep || "잠시만 기다려주세요..."}
+              </p>
+
+              {/* 프로그레스 바 */}
+              {!migrateDone && migrateTotal > 0 && (
+                <div className="mx-auto max-w-[280px]">
+                  <div className="flex justify-between text-xs text-white/50 mb-2">
+                    <span>진행률</span>
+                    <span className="font-bold text-white/80">
+                      {migrateProgress} / {migrateTotal}장 ({Math.round((migrateProgress / migrateTotal) * 100)}%)
+                    </span>
+                  </div>
+                  <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full"
+                      style={{ background: "linear-gradient(90deg, #9333ea, #ec4899, #f59e0b)" }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(migrateProgress / migrateTotal) * 100}%` }}
+                      transition={{ ease: "easeOut", duration: 0.4 }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 스피너 (전송 전 단계) */}
+              {!migrateDone && migrateTotal === 0 && (
+                <div className="flex justify-center">
+                  <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                </div>
+              )}
+
+              {/* 완료 후 Job ID */}
+              {migrateDone && aiJobId && (
+                <p className="text-white/30 text-xs mt-4 font-mono">
+                  Job #{aiJobId}
+                </p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ━━━ AI 보정 에러 오버레이 ━━━ */}
+      <AnimatePresence>
+        {migrateError && !isMigrating && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center"
+            style={{ backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)" }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="max-w-sm w-full mx-6 text-center"
+            >
+              <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-red-500/20 flex items-center justify-center">
+                <AlertCircle className="w-8 h-8 text-red-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2">AI 보정 중 오류 발생</h2>
+              <p className="text-white/60 text-sm mb-6 break-words px-4">{migrateError}</p>
+              <button
+                onClick={() => { setMigrateError(""); setMigrateDone(false); }}
+                className="px-8 py-3 bg-white text-gray-900 rounded-xl font-bold text-sm active:scale-95 transition-all"
+              >
+                닫기
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -832,33 +894,61 @@ export default function FolderPage() {
               </AnimatePresence>
             </div>
 
-            {currentPhoto.aiUrl && (
+            {/* AI/원본 토글 스위치 — aiUrl이 있거나 AI 폴더이면 표시 */}
+            {(currentPhoto.aiUrl || isAiFolder) && (
               <div className="px-5 pb-[env(safe-area-inset-bottom)] py-4">
-                <div className="flex bg-white/10 rounded-xl p-1">
-                  <button onClick={(e) => { e.stopPropagation(); setViewMode("original"); }}
-                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
-                      viewMode === "original" ? "bg-white text-gray-900 shadow-sm" : "text-white/60"
-                    }`}>
-                    <Download className="w-3.5 h-3.5" /> 원본
+                <div className="flex items-center justify-center gap-3">
+                  <span className={`text-sm font-medium transition-all ${viewMode === "original" ? "text-white" : "text-white/40"}`}>
+                    원본
+                  </span>
+
+                  {/* 토글 스위치 */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewMode(prev => prev === "ai" ? "original" : "ai");
+                    }}
+                    className="relative w-16 h-8 rounded-full transition-all duration-300 active:scale-95"
+                    style={{
+                      backgroundColor: viewMode === "ai" ? "#9333ea" : "#4b5563",
+                    }}
+                  >
+                    <div
+                      className="absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-all duration-300 flex items-center justify-center"
+                      style={{
+                        left: viewMode === "ai" ? "calc(100% - 28px)" : "4px",
+                      }}
+                    >
+                      {viewMode === "ai" ? (
+                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5 text-gray-500" />
+                      )}
+                    </div>
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); setViewMode("ai"); }}
-                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
-                      viewMode === "ai" ? "bg-purple-600 text-white shadow-sm" : "text-white/60"
-                    }`}>
+
+                  <span className={`text-sm font-medium transition-all flex items-center gap-1 ${viewMode === "ai" ? "text-purple-300" : "text-white/40"}`}>
                     <Sparkles className="w-3.5 h-3.5" /> AI 보정
-                  </button>
+                  </span>
                 </div>
+
+                {/* AI 보정본 없는 경우 안내 */}
+                {viewMode === "ai" && !currentPhoto.aiUrl && (
+                  <p className="text-center text-white/40 text-xs mt-2">
+                    아직 AI 보정이 완료되지 않았습니다
+                  </p>
+                )}
               </div>
             )}
 
             {viewerIndex > 0 && (
-              <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex - 1); setViewMode("original"); }}
+              <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex - 1); }}
                 className="absolute left-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 z-10">
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>
             )}
             {viewerIndex < photos.length - 1 && (
-              <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex + 1); setViewMode("original"); }}
+              <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex + 1); }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 rotate-180 z-10">
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>
