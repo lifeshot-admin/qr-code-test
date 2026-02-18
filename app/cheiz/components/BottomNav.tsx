@@ -13,8 +13,9 @@ const navItems = [
 export default function BottomNav() {
   const pathname = usePathname();
 
-  // 예약 프로세스 중에는 GNB 숨김 (몰입형 UX)
-  if (pathname.startsWith("/cheiz/reserve")) {
+  // 몰입형 페이지에서는 GNB 숨김
+  const isEventDetail = /^\/cheiz\/events\/.+/.test(pathname);
+  if (pathname.startsWith("/cheiz/reserve") || isEventDetail) {
     return null;
   }
 

@@ -46,10 +46,10 @@ export type GuestCount = {
 export type PersonaCategory = "solo" | "couple" | "friends" | "family";
 
 export const PERSONA_OPTIONS: { value: PersonaCategory; label: string; emoji: string }[] = [
-  { value: "solo", label: "솔로", emoji: "🧍" },
-  { value: "couple", label: "커플", emoji: "💑" },
-  { value: "friends", label: "친구", emoji: "👫" },
-  { value: "family", label: "가족", emoji: "👨‍👩‍👧" },
+  { value: "solo", label: "1인(개인)", emoji: "👤" },
+  { value: "couple", label: "커플/2인", emoji: "👩‍❤️‍👨" },
+  { value: "friends", label: "친구/우정", emoji: "👯" },
+  { value: "family", label: "가족/단체", emoji: "👨‍👩‍👧‍👦" },
 ];
 
 // ✅ 크레딧(GIFT/WALLET) 관련 타입
@@ -81,7 +81,7 @@ export type ReservationState = {
   guestCount: GuestCount;
   
   // ✅ 페르소나 (촬영 카테고리)
-  persona: PersonaCategory;
+  persona: PersonaCategory | null;
   
   // ✅ AI 보정 선택
   aiRetouching: boolean;
@@ -105,7 +105,7 @@ export type ReservationState = {
   setFolderId: (folderId: number | null) => void;
   setScheduleId: (scheduleId: number | null) => void;
   setGuestCount: (count: GuestCount) => void;
-  setPersona: (persona: PersonaCategory) => void;
+  setPersona: (persona: PersonaCategory | null) => void;
   setAiRetouching: (value: boolean) => void;
   
   // ✅ 크레딧 액션
@@ -141,8 +141,8 @@ export const useReservationStore = create<ReservationState>()(
       spots: [],
       folderId: null, // ✅ 자바 백엔드 folderId (출입증)
       scheduleId: null, // ✅ 자바 백엔드 scheduleId (Swagger 필수값)
-      guestCount: { adults: 1, children: 0 },
-      persona: "solo" as PersonaCategory,
+      guestCount: { adults: 0, children: 0 },
+      persona: null as PersonaCategory | null,
       aiRetouching: false,
       creditBalance: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
       appliedCredits: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
@@ -377,8 +377,8 @@ export const useReservationStore = create<ReservationState>()(
           spots: [],
           folderId: null,
           scheduleId: null,
-          guestCount: { adults: 1, children: 0 },
-          persona: "solo" as PersonaCategory,
+          guestCount: { adults: 0, children: 0 },
+          persona: null as PersonaCategory | null,
           aiRetouching: false,
           creditBalance: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
           appliedCredits: { photoCredits: 0, aiCredits: 0, retouchCredits: 0 },
