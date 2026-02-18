@@ -32,23 +32,27 @@ export async function GET(
 
     const authHeader = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
 
-    // ALL 또는 빈 값이면 photoType 파라미터를 제거하여 백엔드가 전체를 반환하도록 함
-    const isAll = !photoType || photoType.toUpperCase() === "ALL";
-    const qsType = isAll ? "" : `photoType=${photoType}&`;
-    const url = `${API_BASE}/api/v1/albums/${albumId}/photos?${qsType}page=${page}&size=${size}`;
-    console.log("[ALBUM_PHOTOS] 🔗 호출 URL:", url);
+    // 공통 fetch 헬퍼
+    const headers = {
+      "Authorization": authHeader,
+      "Accept": "application/json",
+      "Accept-Language": userLan,
+    };
 
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Authorization": authHeader,
-        "Accept": "application/json",
-        "Accept-Language": userLan,
-      },
-    });
+    async function fetchPhotos(typeParam: string, pageParam: string, sizeParam: string) {
+      const isAll = !typeParam || typeParam.toUpperCase() === "ALL";
+      const qsType = isAll ? "" : `photoType=${typeParam}&`;
+      const fetchUrl = `${API_BASE}/api/v1/albums/${albumId}/photos?${qsType}page=${pageParam}&size=${sizeParam}`;
+      console.log("[ALBUM_PHOTOS] 🔗 호출 URL:", fetchUrl);
 
-    const text = await res.text();
-    console.log("[ALBUM_PHOTOS] 📦 응답 status:", res.status, "body:", text.substring(0, 800));
+      const resp = await fetch(fetchUrl, { method: "GET", headers });
+      const body = await resp.text();
+      console.log("[ALBUM_PHOTOS] 📦 응답 status:", resp.status, "body:", body.substring(0, 800));
+      return { resp, body };
+    }
+
+    // ─── 1차 조회 ───
+    let { resp: res, body: text } = await fetchPhotos(photoType, page, size);
 
     let parsed: any;
     try { parsed = JSON.parse(text); } catch {
@@ -76,22 +80,49 @@ export async function GET(
     console.log("[DEBUG_PHOTOS]   parsed 자체가 배열?:", Array.isArray(parsed));
     console.log("[DEBUG_PHOTOS]   totalElements:", parsed?.totalElements, "| totalPages:", parsed?.totalPages, "| number:", parsed?.number);
 
-    // content 우선순위
-    let photos: any[] = [];
-    if (Array.isArray(parsed?.content)) {
-      photos = parsed.content;
-      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed.content →", photos.length, "장");
-    } else if (parsed?.data?.content && Array.isArray(parsed.data.content)) {
-      photos = parsed.data.content;
-      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed.data.content →", photos.length, "장");
-    } else if (Array.isArray(parsed?.data)) {
-      photos = parsed.data;
-      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed.data(배열) →", photos.length, "장");
-    } else if (Array.isArray(parsed)) {
-      photos = parsed;
-      console.log("[DEBUG_PHOTOS] ✅ 추출경로: parsed(배열 자체) →", photos.length, "장");
-    } else {
-      console.warn("[DEBUG_PHOTOS] ⚠️ 사진 배열 추출 실패! 응답 전문(앞 500자):", JSON.stringify(parsed).substring(0, 500));
+    // content 우선순위 추출 함수
+    function extractPhotos(data: any): any[] {
+      if (Array.isArray(data?.content)) return data.content;
+      if (data?.data?.content && Array.isArray(data.data.content)) return data.data.content;
+      if (Array.isArray(data?.data)) return data.data;
+      if (Array.isArray(data)) return data;
+      return [];
+    }
+
+    let photos = extractPhotos(parsed);
+    const extractPath = Array.isArray(parsed?.content) ? "parsed.content"
+      : (parsed?.data?.content && Array.isArray(parsed.data.content)) ? "parsed.data.content"
+      : Array.isArray(parsed?.data) ? "parsed.data(배열)"
+      : Array.isArray(parsed) ? "parsed(배열 자체)" : "(추출 실패)";
+    console.log(`[DEBUG_PHOTOS] ✅ 추출경로: ${extractPath} → ${photos.length}장`);
+
+    // ─── 0장 폴백: isCompleted 필터 제거 후 재조회 ───
+    if (photos.length === 0 && photoType) {
+      console.log("[DEBUG_PHOTOS] ⚠️ 0장 감지 → photoType 제거 후 전체 재조회 시도");
+      const retry = await fetchPhotos("", page, size);
+      try {
+        const retryParsed = JSON.parse(retry.body);
+        const retryPhotos = extractPhotos(retryParsed);
+        if (retryPhotos.length > 0) {
+          console.log(`[DEBUG_PHOTOS] 🔄 필터 제거 재조회 성공: ${retryPhotos.length}장`);
+          photos = retryPhotos;
+          parsed = retryParsed;
+        }
+      } catch {}
+    }
+
+    if (photos.length === 0 && page !== "0") {
+      console.log("[DEBUG_PHOTOS] ⚠️ 여전히 0장 → page=0 으로 재조회 시도");
+      const retry2 = await fetchPhotos("", "0", size);
+      try {
+        const retry2Parsed = JSON.parse(retry2.body);
+        const retry2Photos = extractPhotos(retry2Parsed);
+        if (retry2Photos.length > 0) {
+          console.log(`[DEBUG_PHOTOS] 🔄 page=0 재조회 성공: ${retry2Photos.length}장`);
+          photos = retry2Photos;
+          parsed = retry2Parsed;
+        }
+      } catch {}
     }
 
     console.log(`[DEBUG_PHOTOS] 📊 최종 추출된 사진 수: ${photos.length}장`);
@@ -104,7 +135,7 @@ export async function GET(
       console.log("[DEBUG_PHOTOS] 🔗 thumbnailUrl:", sample.thumbnailUrl?.substring(0, 120));
       console.log("[DEBUG_PHOTOS]    photoType:", sample.photoType, "| isCompleted:", sample.isCompleted);
     } else {
-      console.warn("[DEBUG_PHOTOS] ⚠️ content 배열이 비어있습니다! 응답 전문(앞 300자):", JSON.stringify(parsed).substring(0, 300));
+      console.warn("[DEBUG_PHOTOS] ⚠️ 모든 재조회 후에도 0장! 응답 전문(앞 300자):", JSON.stringify(parsed).substring(0, 300));
     }
 
     return NextResponse.json({

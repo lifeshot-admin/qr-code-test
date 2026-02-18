@@ -70,15 +70,21 @@ export default function AlbumDownloader({
         const ext = blob.type.includes("png") ? "png" : "jpg";
         const filename = photo.filename || buildFilename(i, ext);
 
+        // File 객체로 감싸서 lastModified를 현재 시각으로 강제 → 갤러리 최신 정렬
+        const file = new File([blob], filename, {
+          type: blob.type || "image/jpeg",
+          lastModified: Date.now(),
+        });
+
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
+        a.href = URL.createObjectURL(file);
         a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
 
-        console.log(`[CLIENT_DL]    💾 저장 완료: ${filename}`);
+        console.log(`[CLIENT_DL]    💾 저장 완료: ${filename} (lastModified: ${new Date().toISOString()})`);
         ok++;
       } catch (e: any) {
         console.error(`[CLIENT_DL] 🚨 ${photo.id} 다운로드 실패:`, e.message || e);
