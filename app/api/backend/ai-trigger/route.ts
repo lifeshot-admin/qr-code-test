@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { triggerAiJob } from "@/lib/bubble";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/backend/ai-trigger
  *

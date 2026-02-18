@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateAuthPhoto } from "@/lib/bubble-api";
 
 // Next.js App Router API 라우트 설정
-export const maxDuration = 60; // 최대 60초 (타임아웃 방지)
-export const runtime = "nodejs"; // Node.js 런타임 사용 (body size 제한 완화)
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+export const runtime = "nodejs";
 
 /**
  * POST: auth_photo 테이블에 새 인증사진 레코드를 생성 (POST)

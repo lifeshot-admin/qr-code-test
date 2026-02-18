@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPoseCategories } from "@/lib/bubble-api";
 
 // Next.js API 라우트 설정
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**

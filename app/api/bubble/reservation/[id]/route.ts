@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPoseReservation, updateReservationStatus } from "@/lib/bubble-api";
 
 // Next.js API 라우트 설정
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(
