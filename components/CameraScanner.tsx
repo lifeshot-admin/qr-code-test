@@ -477,8 +477,7 @@ export function CameraScanner({
                   const res = await fetch(`/api/bubble/match-reservation-code?code=${codeInput}`);
                   const data = await res.json();
                   if (data.success && data.reservationId) {
-                    onCodeSubmit?.(data.reservationId);
-                    // QR 성공과 동일한 플로우 진입
+                    // QR 확인 모달 플로우만 사용 (onCodeSubmit 제거하여 이중 실행 방지)
                     onQRSuccess?.(data.reservationId, `CODE_${codeInput}`);
                   } else {
                     showAlert(data.message || "해당 코드와 일치하는 예약을 찾을 수 없습니다.");

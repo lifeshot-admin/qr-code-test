@@ -12,9 +12,10 @@ import {
   Sparkles,
   Home,
   User,
+  Pencil,
 } from "lucide-react";
 import QRCode from "qrcode";
-import { useReservationStore } from "@/lib/reservation-store";
+import { useReservationStore, PERSONA_OPTIONS, type PersonaCategory } from "@/lib/reservation-store";
 import { useHasMounted } from "@/lib/use-has-mounted";
 import { formatKSTDate } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ function SuccessContent() {
     folderId,
     scheduleId,
     guestCount,
+    persona,
     aiRetouching,
     editMode,
     existingReservationId,
@@ -56,13 +58,14 @@ function SuccessContent() {
   const [errorMsg, setErrorMsg] = useState("");
   const processedRef = useRef(false);
 
-  // ✅ clearAll() 이후에도 유지되는 캡처된 요약 정보
+  // clearAll() 이후에도 유지되는 캡처된 요약 정보
   const [capturedSummary, setCapturedSummary] = useState<{
     tourName: string;
     tourDate: string;
     totalGuests: number;
     poseCount: number;
     hasAiRetouching: boolean;
+    persona: PersonaCategory | null;
   } | null>(null);
 
   // Sync URL params to store
@@ -94,6 +97,7 @@ function SuccessContent() {
         totalGuests: guestCount.adults + guestCount.children || 1,
         poseCount: getTotalSelectedCount(),
         hasAiRetouching: aiRetouching,
+        persona,
       });
 
       // QR 코드만 생성
@@ -139,6 +143,7 @@ function SuccessContent() {
         totalGuests: guestCount.adults + guestCount.children || 1,
         poseCount: 0,
         hasAiRetouching: aiRetouching,
+        persona,
       });
       processedRef.current = true;
       processReservation(effectiveTourId, effectiveFolderId, session.user.id);
@@ -164,6 +169,7 @@ function SuccessContent() {
         totalGuests: guestsSnapshot || 1,
         poseCount: poseCountSnapshot,
         hasAiRetouching: aiRetouching,
+        persona,
       });
 
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -386,12 +392,13 @@ function SuccessContent() {
 
   // handleCopy 제거됨 — 간소화된 UI
 
-  // ✅ 캡처된 요약 우선, fallback으로 store 값 (hydration-safe)
   const safePoseCount = capturedSummary?.poseCount ?? (hasMounted ? getTotalSelectedCount() : 0);
   const safeTotalGuests = capturedSummary?.totalGuests ?? (hasMounted ? guestCount.adults + guestCount.children : 0);
   const safeAiRetouching = capturedSummary?.hasAiRetouching ?? (hasMounted ? aiRetouching : false);
   const safeTourName = capturedSummary?.tourName ?? (hasMounted ? tour?.tour_name : null);
   const safeTourDate = capturedSummary?.tourDate ?? (hasMounted ? tour?.tour_date : null);
+  const safePersona = capturedSummary?.persona ?? (hasMounted ? persona : null);
+  const personaLabel = safePersona ? PERSONA_OPTIONS.find(p => p.value === safePersona) : null;
 
   // ━━━ Processing Phase ━━━
   if (phase === "processing") {
@@ -507,10 +514,20 @@ function SuccessContent() {
               {safeTourName && (<div className="flex items-center gap-2 text-sm"><Plane className="w-3.5 h-3.5 text-[#0055FF]" /><span className="text-gray-700">{safeTourName}</span></div>)}
               {safeTourDate && (<div className="flex items-center gap-2 text-sm"><Calendar className="w-3.5 h-3.5 text-[#0055FF]" /><span className="text-gray-700">{formatKSTDate(safeTourDate!)}</span></div>)}
               <div className="flex items-center gap-2 text-sm"><Users className="w-3.5 h-3.5 text-[#0055FF]" /><span className="text-gray-700">{safeTotalGuests}명</span></div>
+              {personaLabel && (<div className="flex items-center gap-2 text-sm"><span className="text-base">{personaLabel.emoji}</span><span className="text-gray-700">{personaLabel.label}</span></div>)}
               <div className="flex items-center gap-2 text-sm"><Camera className="w-3.5 h-3.5 text-[#0055FF]" /><span className="text-gray-700">포즈 {safePoseCount}개</span></div>
               {safeAiRetouching && (<div className="flex items-center gap-2 text-sm"><Sparkles className="w-3.5 h-3.5 text-purple-500" /><span className="text-gray-700">AI 보정 포함</span></div>)}
             </div>
           </motion.div>
+
+          {/* 포즈 0개: 포즈 추가 안내 */}
+          {safePoseCount === 0 && reservationId && (
+            <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.72 }}
+              onClick={() => router.push(`/cheiz/reserve/spots?mode=modify&reservation_id=${reservationId}`)}
+              className="w-full py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm font-bold mb-4 active:scale-[0.98] transition-all flex items-center justify-center gap-2 hover:bg-amber-100">
+              <Pencil className="w-4 h-4" /> 포즈 추가하기
+            </motion.button>
+          )}
 
           {/* Google Map 확인 버튼 */}
           <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.75 }}

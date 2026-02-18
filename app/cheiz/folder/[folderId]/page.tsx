@@ -26,6 +26,7 @@ type FolderDetail = {
   name: string;
   personCount: number;
   hostUserId: number | null;
+  status?: string;
 };
 
 export default function FolderPage() {
@@ -49,6 +50,24 @@ export default function FolderPage() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"original" | "ai">("ai");
+
+  // 뷰어 열기: history entry 추가 → 뒤로가기 시 모달만 닫힘
+  const openViewer = (idx: number) => {
+    setViewerIndex(idx);
+    setViewerOpen(true);
+    window.history.pushState({ viewer: true }, "");
+  };
+  useEffect(() => {
+    if (!viewerOpen) return;
+    const onPopState = (e: PopStateEvent) => {
+      if (viewerOpen) {
+        e.preventDefault();
+        setViewerOpen(false);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [viewerOpen]);
 
   // ━━━ 순서 기반 선택 ━━━
   const [selectedOrder, setSelectedOrder] = useState<(string | number)[]>([]);
@@ -528,23 +547,26 @@ export default function FolderPage() {
   const currentPhoto = photos[viewerIndex];
   const isAllSelected = photos.length > 0 && selectedOrder.length === photos.length;
 
-  // ━━━ AI 폴더 판별: 이름이 [AI]로 시작하면 AI 보정 폴더 ━━━
+  // ━━━ AI 폴더 판별 ━━━
   const isAiFolder = folderDetail?.name?.startsWith("[AI]") ?? false;
+  const hasAiPhotos = photos.some(p => !!p.aiUrl);
+  const hideAiButton = isAiFolder || hasAiPhotos;
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] pb-24">
       {/* ━━━ Header ━━━ */}
       <div className="bg-white border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-md mx-auto px-5 py-3 flex items-center justify-between">
-          <button onClick={() => router.back()} className="text-gray-500 hover:text-[#0055FF] text-sm flex items-center gap-1 active:scale-95">
+          <button onClick={() => router.back()} className="text-gray-500 hover:text-[#0055FF] text-sm flex items-center gap-1 active:scale-95 min-w-[48px]">
             <ArrowLeft className="w-4 h-4" /> 뒤로
           </button>
-          <h1 className="text-sm font-bold text-gray-900">사진 선택</h1>
-          {selectedOrder.length > 0 && (
-            <span className="text-xs font-bold text-[#0055FF] bg-[#0055FF]/10 px-2.5 py-0.5 rounded-full">
-              {selectedOrder.length}장
-            </span>
-          )}
+          <div className="text-center flex-1">
+            <h1 className="text-base font-extrabold text-gray-900">사진 선택</h1>
+            {selectedOrder.length > 0 && (
+              <p className="text-xs text-[#0055FF] font-bold">{selectedOrder.length}장 선택됨</p>
+            )}
+          </div>
+          <div className="min-w-[48px]" />
         </div>
       </div>
 
@@ -574,14 +596,14 @@ export default function FolderPage() {
       {!loading && photos.length > 0 && (
         <div className="max-w-md mx-auto px-5 pt-5">
           <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-gray-400">{selectedOrder.length} / {photos.length}장</p>
             <button onClick={toggleSelectAll}
               className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all active:scale-95 ${
                 isAllSelected ? "bg-[#0055FF] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}>
               <CheckCheck className="w-3.5 h-3.5" />
-              {isAllSelected ? "전체 해제" : "모두 선택하기"}
+              {isAllSelected ? "전체 해제" : "모두 선택"}
             </button>
-            <p className="text-xs text-gray-400">{selectedOrder.length} / {photos.length}장</p>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -591,7 +613,7 @@ export default function FolderPage() {
               return (
                 <motion.div key={photo.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
                   className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer"
-                  onClick={() => { setViewerIndex(idx); setViewerOpen(true); }}>
+                  onClick={() => openViewer(idx)}>
                   <img src={photo.aiUrl || photo.thumbnailUrl || photo.url} alt="" className="w-full h-full object-cover" loading="lazy" />
 
                   {isSelected && <div className="absolute inset-0 bg-[#0055FF]/20 pointer-events-none" />}
@@ -635,8 +657,13 @@ export default function FolderPage() {
               )}
 
               <div className="flex gap-2">
-                {/* AI 폴더가 아닐 때만 AI 보정 버튼 표시 */}
-                {!isAiFolder && (
+                {hideAiButton ? (
+                  hasAiPhotos && !isAiFolder && (
+                    <div className="flex-1 h-12 bg-green-50 border border-green-200 text-green-700 text-sm font-bold rounded-xl flex items-center justify-center gap-1.5">
+                      <CheckCheck className="w-4 h-4" /> 보정 완료
+                    </div>
+                  )
+                ) : (
                   <button onClick={onAiButtonClick}
                     disabled={isMigrating || photos.length === 0}
                     className="flex-1 h-12 bg-gradient-to-r from-purple-600 to-pink-500 text-white text-sm font-bold rounded-xl disabled:opacity-40 active:scale-[0.97] transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-500/20">
@@ -650,7 +677,7 @@ export default function FolderPage() {
 
                 <button onClick={goToNext}
                   disabled={selectedOrder.length === 0 || isMigrating}
-                  className={`${isAiFolder ? "w-full" : "flex-1"} h-12 bg-[#0055FF] text-white text-sm font-bold rounded-xl disabled:opacity-40 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/20`}>
+                  className={`${hideAiButton ? "flex-[2]" : "flex-1"} h-12 bg-[#0055FF] text-white text-sm font-bold rounded-xl disabled:opacity-40 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/20`}>
                   <Download className="w-4 h-4" />
                   {selectedOrder.length > 0
                     ? `${selectedOrder.length}장 다음`
@@ -762,7 +789,9 @@ export default function FolderPage() {
                 <AlertCircle className="w-8 h-8 text-red-400" />
               </div>
               <h2 className="text-lg font-bold text-white mb-2">AI 보정 중 오류 발생</h2>
-              <p className="text-white/60 text-sm mb-6 break-words px-4">{migrateError}</p>
+              <p className="text-white/60 text-sm mb-6 break-words px-4">
+                AI 보정 요청 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.
+              </p>
               <button
                 onClick={() => { setMigrateError(""); setMigrateDone(false); }}
                 className="px-8 py-3 bg-white text-gray-900 rounded-xl font-bold text-sm active:scale-95 transition-all"
@@ -855,101 +884,113 @@ export default function FolderPage() {
         )}
       </AnimatePresence>
 
-      {/* ━━━ 상세 뷰어 ━━━ */}
+      {/* ━━━ 상세 뷰어 (독립 레이어 — 뒤로가기 시 모달만 닫힘) ━━━ */}
       <AnimatePresence>
         {viewerOpen && currentPhoto && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black z-[100] flex flex-col">
+            className="fixed inset-0 bg-black z-[100] flex flex-col"
+            onDrag={() => {}}
+            style={{ touchAction: "none" }}>
+
+            {/* 헤더 */}
             <div className="flex items-center justify-between px-5 pt-[env(safe-area-inset-top)] py-3 relative z-10">
-              <button onClick={() => setViewerOpen(false)} className="p-2 rounded-xl bg-white/10 active:scale-95">
+              <button onClick={() => { window.history.back(); }} className="p-2 rounded-xl bg-white/10 active:scale-95">
                 <X className="w-5 h-5 text-white" />
               </button>
-              <p className="text-white/60 text-sm">{viewerIndex + 1} / {photos.length}</p>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-extrabold ${
-                getSelectionIndex(currentPhoto.id) > 0 ? "bg-[#0055FF] text-white" : "bg-white/10 text-white/40"
-              }`}>
+              <p className="text-white/60 text-sm font-medium">{viewerIndex + 1} / {photos.length}</p>
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleSelect(currentPhoto.id); }}
+                className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-extrabold transition-all active:scale-90 ${
+                  getSelectionIndex(currentPhoto.id) > 0 ? "bg-[#0055FF] text-white ring-2 ring-white/50" : "bg-white/10 text-white/40 border border-white/20"
+                }`}>
                 {getSelectionIndex(currentPhoto.id) || ""}
-              </div>
+              </button>
             </div>
 
-            <div className="flex-1 flex items-center justify-center px-4 relative cursor-pointer"
-              onClick={() => toggleSelect(currentPhoto.id)}>
+            {/* 스와이프 가능한 이미지 영역 */}
+            <motion.div className="flex-1 flex items-center justify-center relative overflow-hidden"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.15}
+              onDragEnd={(_e, info) => {
+                const swipeThreshold = 50;
+                if (info.offset.x < -swipeThreshold && viewerIndex < photos.length - 1) {
+                  setViewerIndex(viewerIndex + 1);
+                } else if (info.offset.x > swipeThreshold && viewerIndex > 0) {
+                  setViewerIndex(viewerIndex - 1);
+                }
+              }}>
+
               <AnimatePresence mode="wait">
-                <motion.img key={`${viewerIndex}-${viewMode}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  src={viewMode === "ai" && currentPhoto.aiUrl ? currentPhoto.aiUrl : currentPhoto.url}
-                  alt="" className="max-w-full max-h-full object-contain rounded-lg pointer-events-none" />
-              </AnimatePresence>
+                <motion.div
+                  key={`${viewerIndex}-${viewMode}`}
+                  initial={{ opacity: 0, x: 60 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -60 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full h-full flex items-center justify-center px-4 relative"
+                  onClick={() => toggleSelect(currentPhoto.id)}>
+                  <img
+                    src={viewMode === "ai" && currentPhoto.aiUrl ? currentPhoto.aiUrl : currentPhoto.url}
+                    alt="" className="max-w-full max-h-full object-contain rounded-lg select-none" draggable={false} />
 
-              <AnimatePresence>
-                {getSelectionIndex(currentPhoto.id) > 0 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
-                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                      className="bg-[#0055FF]/80 backdrop-blur-sm rounded-full w-16 h-16 flex items-center justify-center shadow-2xl">
-                      <span className="text-white text-2xl font-extrabold">{getSelectionIndex(currentPhoto.id)}</span>
-                    </motion.div>
-                  </motion.div>
-                )}
+                  {/* 선택 시 반투명 오버레이 */}
+                  <AnimatePresence>
+                    {getSelectionIndex(currentPhoto.id) > 0 && (
+                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="absolute inset-0 bg-black/40 pointer-events-none flex items-center justify-center">
+                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                          className="bg-[#0055FF] rounded-full w-20 h-20 flex items-center justify-center shadow-2xl">
+                          <span className="text-white text-3xl font-extrabold">{getSelectionIndex(currentPhoto.id)}</span>
+                        </motion.div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
               </AnimatePresence>
-            </div>
+            </motion.div>
 
-            {/* AI/원본 토글 스위치 — aiUrl이 있거나 AI 폴더이면 표시 */}
+            {/* AI/원본 토글 스위치 */}
             {(currentPhoto.aiUrl || isAiFolder) && (
               <div className="px-5 pb-[env(safe-area-inset-bottom)] py-4">
                 <div className="flex items-center justify-center gap-3">
                   <span className={`text-sm font-medium transition-all ${viewMode === "original" ? "text-white" : "text-white/40"}`}>
                     원본
                   </span>
-
-                  {/* 토글 스위치 */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setViewMode(prev => prev === "ai" ? "original" : "ai");
                     }}
                     className="relative w-16 h-8 rounded-full transition-all duration-300 active:scale-95"
-                    style={{
-                      backgroundColor: viewMode === "ai" ? "#9333ea" : "#4b5563",
-                    }}
-                  >
+                    style={{ backgroundColor: viewMode === "ai" ? "#9333ea" : "#4b5563" }}>
                     <div
                       className="absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-all duration-300 flex items-center justify-center"
-                      style={{
-                        left: viewMode === "ai" ? "calc(100% - 28px)" : "4px",
-                      }}
-                    >
-                      {viewMode === "ai" ? (
-                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                      ) : (
-                        <Eye className="w-3.5 h-3.5 text-gray-500" />
-                      )}
+                      style={{ left: viewMode === "ai" ? "calc(100% - 28px)" : "4px" }}>
+                      {viewMode === "ai" ? <Sparkles className="w-3.5 h-3.5 text-purple-600" /> : <Eye className="w-3.5 h-3.5 text-gray-500" />}
                     </div>
                   </button>
-
                   <span className={`text-sm font-medium transition-all flex items-center gap-1 ${viewMode === "ai" ? "text-purple-300" : "text-white/40"}`}>
                     <Sparkles className="w-3.5 h-3.5" /> AI 보정
                   </span>
                 </div>
-
-                {/* AI 보정본 없는 경우 안내 */}
                 {viewMode === "ai" && !currentPhoto.aiUrl && (
-                  <p className="text-center text-white/40 text-xs mt-2">
-                    아직 AI 보정이 완료되지 않았습니다
-                  </p>
+                  <p className="text-center text-white/40 text-xs mt-2">아직 AI 보정이 완료되지 않았습니다</p>
                 )}
               </div>
             )}
 
+            {/* 좌우 버튼 (데스크톱용 fallback) */}
             {viewerIndex > 0 && (
               <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex - 1); }}
-                className="absolute left-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 z-10">
+                className="absolute left-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 z-10 hidden sm:flex">
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>
             )}
             {viewerIndex < photos.length - 1 && (
               <button onClick={(e) => { e.stopPropagation(); setViewerIndex(viewerIndex + 1); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 rotate-180 z-10">
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-3 bg-white/10 rounded-full active:scale-95 rotate-180 z-10 hidden sm:flex">
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>
             )}
