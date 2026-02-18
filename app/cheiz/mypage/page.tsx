@@ -442,18 +442,19 @@ export default function MyPage() {
             </div>
           </div>
 
-          {/* 언어 설정 */}
-          <div className="mt-4 pt-4 border-t border-gray-50 flex items-center justify-between">
+          {/* 언어 설정 — 전용 페이지 링크 */}
+          <button
+            onClick={() => router.push("/cheiz/mypage/language")}
+            className="mt-4 pt-4 border-t border-gray-50 flex items-center justify-between w-full hover:bg-gray-50 rounded-lg transition-colors -mx-1 px-1"
+          >
             <div className="flex items-center gap-2 text-sm text-gray-500"><Globe className="w-4 h-4" /><span>언어</span></div>
-            <div className="flex gap-1">
-              {(["ko", "en", "ja"] as const).map((lang) => (
-                <button key={lang} onClick={() => handleLanguageChange(lang)} disabled={langSaving}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 ${language === lang ? "bg-[#0055FF] text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
-                  {lang === "ko" ? "한국어" : lang === "en" ? "EN" : "日本語"}
-                </button>
-              ))}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-400">
+                {language === "ko" ? "한국어" : language === "en" ? "English" : "日本語"}
+              </span>
+              <ChevronRight className="w-4 h-4 text-gray-300" />
             </div>
-          </div>
+          </button>
         </motion.div>
       </div>
 

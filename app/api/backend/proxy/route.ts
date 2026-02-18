@@ -63,9 +63,17 @@ async function handleProxy(request: NextRequest, method: string) {
 
     if (method !== "GET" && method !== "HEAD") {
       try {
-        const body = await request.text();
-        if (body) fetchOptions.body = body;
-      } catch {}
+        const cloned = request.clone();
+        const body = await cloned.text();
+        if (body) {
+          fetchOptions.body = body;
+          console.log(`[PROXY] ${method} body preview (${body.length} chars): ${body.substring(0, 200)}`);
+        } else {
+          console.warn(`[PROXY] ${method} body is empty`);
+        }
+      } catch (bodyErr: any) {
+        console.error(`[PROXY] ❌ Failed to read request body: ${bodyErr.message}`);
+      }
     }
 
     const res = await fetch(targetUrl, fetchOptions);

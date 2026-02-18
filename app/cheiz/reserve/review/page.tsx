@@ -600,12 +600,15 @@ function ReviewContent() {
       }, 1500);
 
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.error(`${getTimestamp()} ❌❌❌ [BUBBLE KINGDOM] Reservation failed!`);
-      console.error(`${getTimestamp()} Error:`, error);
+      console.error(`${getTimestamp()} ❌ [RESERVATION_FAILED]`);
+      console.error(`${getTimestamp()} 백엔드 폴더 생성: ${finalFolderId ? "🟢 Success (folderId=" + finalFolderId + ")" : "🔴 Failed"}`);
+      console.error(`${getTimestamp()} 버블 pose_reservation: ${reservationId ? "🟢 Success" : "🔴 Failed or not reached"}`);
+      console.error(`${getTimestamp()} Error: ${errMsg}`);
       console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
-      await showError(`포즈 예약에 실패했습니다.\n${error instanceof Error ? error.message : "다시 시도해주세요."}`);
+      await showError(`예약 처리 중 오류가 발생했습니다.\n${errMsg}\n\n다시 시도해주세요.`);
     } finally {
       setSubmitting(false);
     }

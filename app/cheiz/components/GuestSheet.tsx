@@ -69,7 +69,7 @@ export default function GuestSheet({ isOpen, onClose, onConfirm }: GuestSheetPro
             <div className="px-6 pt-3 pb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Camera className="w-5 h-5 text-[#0055FF]" />
-                <h3 className="text-lg font-bold text-gray-900">예약 정보</h3>
+                <h3 className="text-lg font-bold text-gray-900">인원 및 유형</h3>
               </div>
               <button
                 onClick={onClose}
