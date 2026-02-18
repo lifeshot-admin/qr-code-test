@@ -7,7 +7,10 @@
  * - Response types must match Swagger schema
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
+const API_BASE_URL =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://api.lifeshot.me";
 
 /**
  * Standard Swagger Response Envelope

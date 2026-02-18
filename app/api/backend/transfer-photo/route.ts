@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
+  process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
 
 /**
  * POST /api/backend/transfer-photo

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
+  process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
 
 // ━━━ POST — Stripe 웹훅 프록시 (/api/v1/payments/webhook) ━━━
 export async function POST(req: NextRequest) {

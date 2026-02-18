@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
+  process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
 
 // ━━━ GET /api/v1/retouchers/search → ID 7 (박환 작가) 필터링 ━━━
 export async function GET(req: NextRequest) {

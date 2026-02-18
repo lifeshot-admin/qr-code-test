@@ -12,7 +12,9 @@
  */
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://api.lifeshot.me";
 
 // ==================== TYPES ====================
 

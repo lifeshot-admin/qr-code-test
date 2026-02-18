@@ -3,7 +3,12 @@ import { JWT } from "next-auth/jwt";
 import KakaoProvider from "next-auth/providers/kakao";
 import CredentialsProvider from "next-auth/providers/credentials";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
+const API_BASE_URL =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://api.lifeshot.me";
+
+console.log(`[AUTH_INIT] API_BASE_URL resolved to: ${API_BASE_URL} (BACKEND_URL=${process.env.BACKEND_URL ? "SET" : "UNSET"}, NEXT_PUBLIC_API_BASE_URL=${process.env.NEXT_PUBLIC_API_BASE_URL ? "SET" : "UNSET"})`);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ✅ 리프레시 토큰 자동 갱신 함수
