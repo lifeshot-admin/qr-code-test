@@ -9,10 +9,25 @@ const API_BASE =
   process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+// CORS preflight 처리 — 외부(Bubble 등)에서 POST 전에 OPTIONS를 먼저 보냄
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 function sanitizeAuth(raw: string): string {
   let pure = raw;
   while (/^Bearer\s+/i.test(pure)) pure = pure.replace(/^Bearer\s+/i, "");
   return `Bearer ${pure.trim()}`;
+}
+
+function jsonResponse(data: any, status = 200) {
+  return NextResponse.json(data, { status, headers: CORS_HEADERS });
 }
 
 /**
@@ -53,9 +68,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!token) {
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "로그인이 필요합니다. Authorization 헤더 또는 세션이 필요합니다.", step: "AUTH" },
-        { status: 401 },
+        401,
       );
     }
 
@@ -63,9 +78,9 @@ export async function POST(req: NextRequest) {
     const { folderId, rawPhotoIds, detailPhotoIds, retoucherId, credit, origin } = body;
 
     if (!folderId || !origin) {
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "folderId, origin은 필수입니다.", step: "VALIDATION" },
-        { status: 400 },
+        400,
       );
     }
 
@@ -115,17 +130,17 @@ export async function POST(req: NextRequest) {
     let orderParsed: any;
     try { orderParsed = JSON.parse(orderText); } catch {
       console.error("[PURCHASE_START] ❌ 주문 응답 파싱 실패:", orderText.substring(0, 200));
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "주문 생성 응답을 파싱할 수 없습니다.", step: "ORDER" },
-        { status: 500 },
+        500,
       );
     }
 
     if (!orderRes.ok) {
       console.error("[PURCHASE_START] ❌ 주문 생성 실패:", orderRes.status, orderParsed.message);
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: orderParsed.message || `주문 생성 실패 (${orderRes.status})`, step: "ORDER", data: orderParsed },
-        { status: orderRes.status },
+        orderRes.status,
       );
     }
 
@@ -135,9 +150,9 @@ export async function POST(req: NextRequest) {
 
     if (!orderId) {
       console.error("[PURCHASE_START] ❌ orderId 없음:", JSON.stringify(orderParsed).substring(0, 300));
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "주문 ID를 받지 못했습니다.", step: "ORDER" },
-        { status: 500 },
+        500,
       );
     }
 
@@ -171,14 +186,14 @@ export async function POST(req: NextRequest) {
         let errMsg = "결제 완료 처리에 실패했습니다.";
         try { errMsg = JSON.parse(completeText).message || errMsg; } catch {}
         console.error("[PURCHASE_START] ❌ 0원 완료 실패:", completeRes.status);
-        return NextResponse.json(
+        return jsonResponse(
           { success: false, error: errMsg, step: "COMPLETE", orderId },
-          { status: completeRes.status },
+          completeRes.status,
         );
       }
 
       console.log("[PURCHASE_START] ✅ 0원 구매 완료 — 앨범 생성 트리거됨");
-      return NextResponse.json({
+      return jsonResponse({
         success: true,
         type: "FREE",
         orderId,
@@ -215,7 +230,7 @@ export async function POST(req: NextRequest) {
 
     console.log("[PURCHASE_START] ✅ Checkout URL 생성 완료");
 
-    return NextResponse.json({
+    return jsonResponse({
       success: true,
       type: "STRIPE",
       orderId,
@@ -225,9 +240,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[PURCHASE_START] ❌ 예외:", e.message);
-    return NextResponse.json(
+    return jsonResponse(
       { success: false, error: e.message || "시스템 오류가 발생했습니다.", step: "SYSTEM" },
-      { status: 500 },
+      500,
     );
   }
 }

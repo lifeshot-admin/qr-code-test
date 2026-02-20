@@ -9,10 +9,24 @@ const API_BASE =
   process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.lifeshot.me";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 function sanitizeAuth(raw: string): string {
   let pure = raw;
   while (/^Bearer\s+/i.test(pure)) pure = pure.replace(/^Bearer\s+/i, "");
   return `Bearer ${pure.trim()}`;
+}
+
+function jsonResponse(data: any, status = 200) {
+  return NextResponse.json(data, { status, headers: CORS_HEADERS });
 }
 
 /**
@@ -50,9 +64,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!token) {
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "로그인이 필요합니다. Authorization 헤더 또는 세션이 필요합니다.", step: "AUTH" },
-        { status: 401 },
+        401,
       );
     }
 
@@ -60,9 +74,9 @@ export async function POST(req: NextRequest) {
     const { sessionId } = body;
 
     if (!sessionId) {
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "sessionId는 필수입니다.", step: "VALIDATION" },
-        { status: 400 },
+        400,
       );
     }
 
@@ -79,14 +93,14 @@ export async function POST(req: NextRequest) {
 
     if (checkoutSession.payment_status !== "paid") {
       console.error("[PURCHASE_VERIFY] ❌ 결제 미완료:", checkoutSession.payment_status);
-      return NextResponse.json(
+      return jsonResponse(
         {
           success: false,
           error: "결제가 완료되지 않았습니다.",
           step: "STRIPE_VERIFY",
           paymentStatus: checkoutSession.payment_status,
         },
-        { status: 400 },
+        400,
       );
     }
 
@@ -95,9 +109,9 @@ export async function POST(req: NextRequest) {
 
     if (!orderId) {
       console.error("[PURCHASE_VERIFY] ❌ metadata에 photoOrderId 없음");
-      return NextResponse.json(
+      return jsonResponse(
         { success: false, error: "주문 정보를 찾을 수 없습니다.", step: "STRIPE_VERIFY" },
-        { status: 400 },
+        400,
       );
     }
 
@@ -124,7 +138,7 @@ export async function POST(req: NextRequest) {
 
       console.error("[PURCHASE_VERIFY] ❌ Java 완료 처리 실패:", completeRes.status);
 
-      return NextResponse.json(
+      return jsonResponse(
         {
           success: false,
           error: errMsg,
@@ -132,7 +146,7 @@ export async function POST(req: NextRequest) {
           orderId,
           stripeVerified: true,
         },
-        { status: completeRes.status },
+        completeRes.status,
       );
     }
 
@@ -143,7 +157,7 @@ export async function POST(req: NextRequest) {
     console.log("[PURCHASE_VERIFY]   totalPaid:", checkoutSession.amount_total);
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    return NextResponse.json({
+    return jsonResponse({
       success: true,
       status: "COMPLETED",
       orderId,
@@ -153,9 +167,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[PURCHASE_VERIFY] ❌ 예외:", e.message);
-    return NextResponse.json(
+    return jsonResponse(
       { success: false, error: e.message || "검증 중 오류가 발생했습니다.", step: "SYSTEM" },
-      { status: 500 },
+      500,
     );
   }
 }
