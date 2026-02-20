@@ -1,0 +1,211 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ═══ Cheiz Design System v3 ═══ */
+:root {
+  --cheiz-primary: #3FACFF;
+  --cheiz-dark: #1A8FE8;
+  --cheiz-bg: #FFFFFF;
+  --cheiz-surface: #F5FAFF;
+  --cheiz-text: #1A1A2E;
+  --cheiz-sub: #8A9BB0;
+  --cheiz-border: #E8F0F7;
+  --cheiz-success: #34C77B;
+}
+
+/* 포토그래퍼 앱용 고정 레이아웃 */
+.photographer-app html,
+.photographer-app body {
+  overflow: hidden;
+  position: fixed;
+  background: #000;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F8F9FA;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+/* 스크롤바 숨기기 (카테고리 메뉴용) */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Hide scrollbar for carousel */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+video::-webkit-media-controls {
+  display: none !important;
+}
+
+/* ═══ Animations ═══ */
+@keyframes scan {
+  0%,
+  100% {
+    top: 0;
+    opacity: 1;
+  }
+  50% {
+    top: calc(100% - 2px);
+    opacity: 0.5;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scan {
+  animation: scan 2s ease-in-out infinite;
+}
+
+.animate-pop {
+  animation: pop 0.3s ease;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+@keyframes sparkle-float {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(0) scale(0.6);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1);
+  }
+  70% {
+    opacity: 0.6;
+    transform: translateY(-16px) scale(0.8);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-sparkle-1 {
+  animation: sparkle-float 2.4s ease-in-out infinite;
+}
+.animate-sparkle-2 {
+  animation: sparkle-float 2.4s ease-in-out 0.8s infinite;
+}
+.animate-sparkle-3 {
+  animation: sparkle-float 2.4s ease-in-out 1.6s infinite;
+}
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* 버튼 클릭 인터랙션 — 모든 버튼/클릭 요소에 터치 피드백 */
+button:not(:disabled):active,
+[role="button"]:not(:disabled):active,
+a.btn:active {
+  transform: scale(0.97);
+  transition: transform 0.1s ease;
+}
+
+button:disabled,
+[role="button"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

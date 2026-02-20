@@ -1,0 +1,22 @@
+{
+  "name": "cheiz-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "dev:b2c": "turbo dev --filter=b2c-web",
+    "dev:photographer": "turbo dev --filter=photographer-web",
+    "dev:admin": "turbo dev --filter=admin-panel",
+    "build:b2c": "turbo build --filter=b2c-web"
+  },
+  "devDependencies": {
+    "turbo": "^2"
+  },
+  "packageManager": "npm@10.0.0"
+}
