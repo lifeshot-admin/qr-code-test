@@ -35,13 +35,26 @@ function sanitizeAuth(raw: string): string {
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    const token = (session as any)?.accessToken || "";
-    const userLan = (session as any)?.user?.lan || "ko";
+    // 토큰 우선순위: ① 요청 헤더 Authorization (외부 호출: Bubble 등) → ② NextAuth 세션 (내부 호출: React)
+    let token = "";
+    let userLan = "ko";
+
+    const headerAuth = req.headers.get("authorization") || "";
+    if (headerAuth) {
+      let pure = headerAuth;
+      while (/^Bearer\s+/i.test(pure)) pure = pure.replace(/^Bearer\s+/i, "");
+      token = pure.trim();
+    }
+
+    if (!token) {
+      const session = await getServerSession(authOptions);
+      token = (session as any)?.accessToken || "";
+      userLan = (session as any)?.user?.lan || "ko";
+    }
 
     if (!token) {
       return NextResponse.json(
-        { success: false, error: "로그인이 필요합니다.", step: "AUTH" },
+        { success: false, error: "로그인이 필요합니다. Authorization 헤더 또는 세션이 필요합니다.", step: "AUTH" },
         { status: 401 },
       );
     }
